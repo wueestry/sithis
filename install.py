@@ -13,6 +13,18 @@ def main():
     root = Path(__file__).resolve().parent
     install_root = root / "agent/install"
     package_name = "@earendil-works/pi-coding-agent"
+    settings_file = root / "agent/settings.json"
+    settings = json.loads(settings_file.read_text()) if settings_file.exists() else {}
+    packages = settings.get("packages", [])
+    if not isinstance(packages, list):
+        raise ValueError("agent/settings.json packages must be a list.")
+    sources = []
+    for package in packages:
+        source = package.get("source") if isinstance(package, dict) else package
+        if not isinstance(source, str) or not source.strip() or source.startswith("-"):
+            raise ValueError(f"Invalid package source in agent/settings.json: {package!r}")
+        if source not in sources:
+            sources.append(source)
 
     node_version = subprocess.check_output(["node", "--version"], text=True).strip()
     if tuple(map(int, node_version.lstrip("v").split("."))) < (22, 19, 0):
@@ -64,6 +76,14 @@ def main():
     binary = release / "node_modules/.bin/pi"
     if not os.access(binary, os.X_OK):
         raise ValueError(f"Installed Pi executable is missing or not executable: {binary}")
+
+    # Use Pi's package manager so npm, Git, and local sources retain their
+    # normal layout and resource filters in settings.json.
+    env = dict(os.environ, PI_CODING_AGENT_DIR=str(root / "agent"))
+    for source in sources:
+        print(f"Installing configured package: {source}", flush=True)
+        subprocess.run([str(binary), "install", source], cwd=root / "agent",
+                       env=env, check=True)
 
     entrypoint.parent.mkdir(parents=True, exist_ok=True)
     check_entrypoint(entrypoint)

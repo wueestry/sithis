@@ -1,0 +1,6 @@
+{
+  "packages": [
+    "npm:pi-provider-litellm",
+    "npm:pi-subagents"
+  ]
+}
