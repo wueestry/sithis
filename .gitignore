@@ -1,3 +1,12 @@
 agent/install/releases
+agent/npm/node_modules
+
+agent/sessions
+agent/pi-subagents
+
+agent/models-store.json
+agent/auth.json
+
+context-mode
 
 .env

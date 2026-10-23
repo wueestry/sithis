@@ -2,6 +2,10 @@
   "packages": [
     "npm:pi-provider-litellm",
     "npm:pi-subagents",
-    "npm:pi-web-access"
-  ]
+    "npm:pi-web-access",
+    "npm:context-mode"
+  ],
+  "lastChangelogVersion": "1.4.0",
+  "defaultProvider": "opencode-go",
+  "defaultModel": "kimi-k3"
 }
