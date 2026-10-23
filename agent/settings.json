@@ -1,6 +1,7 @@
 {
   "packages": [
     "npm:pi-provider-litellm",
-    "npm:pi-subagents"
+    "npm:pi-subagents",
+    "npm:pi-web-access"
   ]
 }
