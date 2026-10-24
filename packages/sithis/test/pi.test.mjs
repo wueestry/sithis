@@ -43,6 +43,40 @@ test('installed Pi loads tools, operator controls, resumed scope policy and role
   // Restoring an old branch restores its engagement gate.
   await extension.handlers.get('session_tree')[0]({}, {sessionManager:{getBranch:()=>entries.slice(0,1)}});
   assert.equal((await gate({toolName:'bash'})).block,true);
+  // Exercise the slash command exactly as an operator types it.
+  const scope = {allowed:['127.0.0.1'],ports:[80],expires:new Date(Date.now()+60000).toISOString(),authorization:'fixture approval'};
+  fs.writeFileSync(path.join(root,'scope file.json'),JSON.stringify(scope));
+  const interactive = {...ctx, cwd:root, hasUI:true};
+  await command.handler('new from-file @"scope file.json"',interactive);
+  assert.equal(store.load('from-file').id,'from-file');
+  await command.handler('new bare-file "scope file.json"',interactive);
+  assert.equal(store.load('bare-file').id,'bare-file');
+  await command.handler('new from-inline '+JSON.stringify(scope),interactive);
+  assert.equal(store.load('from-inline').id,'from-inline');
+  const answers=['wizard','127.0.0.1','80',scope.expires,'fixture approval',''];
+  await command.handler('new',{...interactive,ui:{...ctx.ui,input:async()=>answers.shift()}});
+  assert.equal(store.load('wizard').id,'wizard');
+  await command.handler('leave',interactive);
+  await command.handler('',interactive);
+  await command.handler('status',interactive);
+  await command.handler('list',interactive);
+  assert.equal(errors.length,0);
+  assert.match(messages.at(-1).content,/from-file/);
+  await command.handler('new cancelled',{...interactive,ui:{...ctx.ui,input:async()=>undefined}});
+  assert.match(errors.pop(),/cancelled/);
+  assert.equal(fs.existsSync(store.dir('cancelled')),false);
+  for(const payload of ['{','{allowed:[]}']) {
+    await command.handler('new broken '+payload,interactive);
+    assert.match(errors.pop(),/Invalid JSON/);
+    assert.equal(fs.existsSync(store.dir('broken')),false);
+  }
+  await command.handler('new broken example/scope.json',interactive);
+  assert.match(errors.pop(),/Cannot read JSON file/);
+  await command.handler('resume missing',interactive);
+  assert.match(errors.pop(),/does not exist/);
+  await command.handler('resume',{...interactive,ui:{...ctx.ui,select:async()=> 'demo'}});
+  assert.equal(errors.length,0);
+  await assert.rejects(tool.execute('test',{engagement:'wizard',operation:'status'}),/differs/);
   const { discoverAgents } = await import(path.join(repo,'agent/npm/node_modules/pi-subagents/src/agents/agents.js'));
   const discovered = discoverAgents(repo,'both');
   const agents = discovered.agents.filter(a=>a.packageSourceName==='@sithis/pi-pentest');

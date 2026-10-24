@@ -45,7 +45,10 @@ node packages/sithis/src/cli.mjs new customer-demo @my-scope.json
 node packages/sithis/src/cli.mjs resume customer-demo
 ```
 
-In Pi:
+In Pi, start guided setup with `/engagement new`. You can also load a scope
+file directly: `/engagement new customer-demo @my-scope.json` (plain file paths
+work too). Relative paths resolve from Pi's working directory; quote paths with
+spaces. `/engagement help` shows examples and `/engagement list` shows saved work.
 
 ```text
 /engagement resume customer-demo

@@ -1,6 +1,7 @@
 import { Type } from '@earendil-works/pi-ai';
 import { defineTool, type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { Store, dispatch } from './core.mjs';
+import { HELP, splitWord, parsePayload, listEngagements, guidedScope } from './commands.mjs';
 
 export default function (pi: ExtensionAPI) {
   let selected: string | undefined;
@@ -51,30 +52,54 @@ export default function (pi: ExtensionAPI) {
     },
   }));
   pi.registerCommand('engagement', {
-    description: 'new ID {scope JSON} | resume ID | status | report | review {JSON} | capture {JSON} | leave. Selecting an engagement restricts model tools to Sithis.',
+    description: 'Guided setup: new [ID]. File setup: new ID @scope.json. Also: help, list, resume ID, status, report, review, capture, leave.',
     handler: async (args, ctx) => {
       try {
-        const [operation, ...rest] = args.trim().split(/\s+/);
+        const [operation, rest] = splitWord(args);
         const store = new Store(); let value;
-        if (operation === 'leave') {
+        if (!operation || operation === 'help') {
+          const saved = listEngagements(store);
+          value = HELP + (saved.length ? '\n\nSaved engagements: ' + saved.map(e => e.id).join(', ') : '\n\nNo saved engagements yet. Start with /engagement new.');
+        } else if (operation === 'list') {
+          const saved = listEngagements(store);
+          value = saved.length ? saved : 'No saved engagements yet. Start with /engagement new.';
+        } else if (operation === 'leave') {
           selected = undefined;
           pi.appendEntry('sithis-engagement', { id: null });
           value = 'Returned to general Pi tools.';
         } else if (operation === 'new') {
-          const id = rest.shift();
-          if (!id) throw new Error('Usage: /engagement new ID {scope JSON}');
-          value = await dispatch(store, 'new', id, JSON.parse(rest.join(' ')));
+          let [id, payload] = splitWord(rest);
+          let scope;
+          if (!payload) {
+            if (!ctx.hasUI) throw new Error('Guided setup needs interactive Pi. Use /engagement new ID @scope.json or /engagement help.');
+            const setup = await guidedScope(ctx.ui, id);
+            id = setup.id;
+            scope = setup.scope;
+          } else scope = parsePayload(payload, ctx.cwd);
+          value = await dispatch(store, 'new', id, scope);
           selected = id;
           pi.appendEntry('sithis-engagement', { id });
         } else if (operation === 'resume') {
-          const id = rest[0];
-          value = await dispatch(store, 'resume', id);
+          let id = rest.trim();
+          if (!id) {
+            const saved = listEngagements(store);
+            if (!saved.length) throw new Error('No saved engagements yet. Create one with /engagement new.');
+            if (!ctx.hasUI) throw new Error('Use /engagement resume ID. Saved IDs: ' + saved.map(e => e.id).join(', '));
+            id = await ctx.ui.select('Resume engagement', saved.map(e => e.id)) ?? '';
+            if (!id) return;
+          }
+          try { value = await dispatch(store, 'resume', id); }
+          catch (error) {
+            if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new Error(`Engagement "${id}" does not exist. Use /engagement list or /engagement new ${id}.`);
+            throw error;
+          }
           selected = id;
           pi.appendEntry('sithis-engagement', { id });
         } else {
-          if (!selected) throw new Error('First use /engagement resume ID');
-          if (!['status','report','review','capture'].includes(operation)) throw new Error('Expected new, resume, status, report, review, capture, or leave');
-          value = await dispatch(store, operation, selected, ['review','capture'].includes(operation) ? JSON.parse(rest.join(' ')) : {});
+          if (!['status','report','review','capture'].includes(operation)) throw new Error('Unknown engagement command. Run /engagement help for commands and examples.');
+          if (!selected) {
+            value = 'No engagement selected. Create one with /engagement new, or resume saved work with /engagement resume ID.\n\n' + HELP;
+          } else value = await dispatch(store, operation, selected, ['review','capture'].includes(operation) ? parsePayload(rest, ctx.cwd) : {});
         }
         pi.sendMessage({ customType: 'sithis-status', content: typeof value === 'string' ? value : JSON.stringify(value, null, 2), display: true }, { triggerTurn: false });
       } catch (error) { ctx.ui.notify((error as Error).message, 'error'); }
