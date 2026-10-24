@@ -5,6 +5,8 @@ import { validateScope } from './core.mjs';
 
 export const HELP = `Sithis engagements
 
+Run /engagement to open the menu.
+
 Create an engagement:
   /engagement new                      Guided setup
   /engagement new my-test              Guided scope setup
@@ -49,20 +51,77 @@ export function listEngagements(store) {
     } catch { return []; }
   }).sort((a,b)=>a.id.localeCompare(b.id));
 }
-export async function guidedScope(ui, initialId) {
-  const input = async (label, placeholder) => {
-    const value=await ui.input(label,placeholder);
-    if (value === undefined) throw new Error('Setup cancelled; no engagement created.');
-    if (!value.trim()) throw new Error(`${label} is required. Run /engagement new to try again.`);
-    return value.trim();
+export class SetupCancelled extends Error {
+  constructor() { super('Setup cancelled; no engagement created.'); }
+}
+export function formatStatus(state) {
+  const expired = Date.parse(state.scope.expires) <= Date.now();
+  return [
+    `Engagement: ${state.id}${expired ? ' (expired)' : ''}`,
+    `Allowed: ${state.scope.allowed.join(', ')}`,
+    `Excluded: ${state.scope.excluded.join(', ') || 'none'}`,
+    `Ports: ${state.scope.ports.join(', ')}`,
+    `Expires: ${state.scope.expires}`,
+    `Requests: ${state.requestBudget.used}/${state.requestBudget.total}`,
+    `Assets: ${state.assets.length} | Findings: ${state.findings.length} | Pending: ${state.pending.length}`,
+    '',
+    ...state.findings.map(f => `  ${f.severity} | ${f.status} | ${f.title} (${f.id})`),
+    '',
+    'Use /engagement report for the report, or ask the agent to investigate within this scope.',
+  ].join('\n');
+}
+export function formatEngagementList(saved) {
+  if (!saved.length) return 'No saved engagements yet. Start with /engagement new.';
+  return ['Saved engagements', '', ...saved.map(e => `${e.id} | ${Date.parse(e.expires) <= Date.now() ? 'expired' : 'active'} | expires ${e.expires} | ${e.findings} findings`), '', 'Use /engagement resume ID to select one.'].join('\n');
+}
+export async function engagementMenu(ui, selected, saved) {
+  const actions = ['New engagement'];
+  if (saved.length) actions.push('Resume engagement');
+  if (selected) actions.push('View status', 'Generate report', 'Leave engagement');
+  actions.push('Help');
+  const action = await ui.select(selected ? `Engagement: ${selected}` : 'Sithis engagements', actions);
+  return { 'New engagement': 'new', 'Resume engagement': 'resume', 'View status': 'status', 'Generate report': 'report', 'Leave engagement': 'leave', Help: 'help' }[action];
+}
+export async function guidedScope(ui, initialId, { existingIds = [] } = {}) {
+  const exampleExpiry = new Date(Date.now() + 86400000).toISOString().replace(/\.\d{3}Z$/, 'Z');
+  const base = { allowed: ['example.test'], ports: [443], expires: exampleExpiry, authorization: 'pending' };
+  const field = async (label, placeholder, validate, optional = false) => {
+    while (true) {
+      const response = await ui.input(label, placeholder);
+      if (response === undefined) throw new SetupCancelled();
+      const value = response.trim();
+      try {
+        if (!optional && !value) throw new Error(`${label} is required.`);
+        return validate(value);
+      } catch (error) {
+        ui.notify?.(error.message, 'error');
+      }
+    }
   };
-  const id=initialId || await input('Engagement ID','customer-web-test');
-  if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$/.test(id)) throw new Error('Engagement ID must be 1–80 letters, digits, underscores or hyphens, starting with a letter or digit.');
-  const allowed=(await input('Authorized hosts, IPs or CIDRs (comma-separated)','app.example.test, api.example.test')).split(',').map(s=>s.trim());
-  const ports=(await input('Allowed ports (comma-separated)','443')).split(',').map(s=>Number(s.trim()));
-  const expires=await input('Scope expires (e.g. 2026-10-25T18:00:00+01:00)',new Date(Date.now()+86400000).toISOString());
-  const authorization=await input('Authorization / rules-of-engagement reference','Customer approval or engagement document reference');
-  const excluded=await ui.input('Excluded hosts, IPs or CIDRs (optional, comma-separated)','Leave blank if none');
-  if (excluded === undefined) throw new Error('Setup cancelled; no engagement created.');
-  return { id, scope: validateScope({allowed,ports,expires,authorization,excluded:excluded.split(',').map(s=>s.trim()).filter(Boolean)}) };
+  const checkId = id => {
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$/.test(id)) throw new Error('Use 1–80 letters, digits, underscores or hyphens, starting with a letter or digit.');
+    if (existingIds.includes(id)) throw new Error(`Engagement "${id}" already exists. Resume it or choose another ID.`);
+    return id;
+  };
+  const id = initialId ? checkId(initialId) : await field('Engagement ID', 'customer-web-test', checkId);
+  const hosts = value => value.split(',').map(s => s.trim()).filter(Boolean);
+  const allowed = await field('Authorized hosts, IPs or CIDRs (comma-separated)', 'app.example.test, api.example.test', value => {
+    const parsed = hosts(value); validateScope({ ...base, allowed: parsed }); return parsed;
+  });
+  const ports = await field('Allowed ports (comma-separated)', '443', value => {
+    if (!/^\d+(?:\s*,\s*\d+)*$/.test(value)) throw new Error('Enter port numbers, for example 80,443.');
+    const parsed = value.split(',').map(Number); validateScope({ ...base, ports: parsed }); return [...new Set(parsed)];
+  });
+  const expires = await field(`Scope expires (e.g. ${exampleExpiry})`, exampleExpiry, value => {
+    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})$/.test(value)) throw new Error(`Include date, time and timezone, for example ${exampleExpiry}.`);
+    validateScope({ ...base, expires: value }); return new Date(value).toISOString();
+  });
+  const authorization = await field('Authorization / rules-of-engagement reference', 'Customer approval or engagement document reference', value => value);
+  const excluded = await field('Excluded hosts, IPs or CIDRs (optional, comma-separated)', 'Leave blank if none', value => {
+    const parsed = hosts(value); validateScope({ ...base, excluded: parsed }); return parsed;
+  }, true);
+  const scope = validateScope({ allowed, ports, expires, authorization, excluded });
+  // Show the completed scope before persisting; cancellation never creates partial state.
+  if (ui.confirm && !await ui.confirm('Create engagement?', `${id}\nAllowed: ${allowed.join(', ')}\nPorts: ${ports.join(', ')}\nExpires: ${scope.expires}\nAuthorization: ${authorization}\nExclusions: ${excluded.join(', ') || 'none'}`)) throw new SetupCancelled();
+  return { id, scope };
 }

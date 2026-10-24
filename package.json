@@ -1,0 +1,33 @@
+{
+  "name": "sithis",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "workspaces": [
+    "packages/sithis-tui",
+    "packages/pi-tui-compat"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace sithis-tui",
+    "start": "node apps/sithis/main.mjs",
+    "test": "node --test apps/sithis/test/*.test.mjs packages/sithis/test/*.test.mjs",
+    "test:tui": "npm test --workspace sithis-tui",
+    "typecheck": "tsc --noEmit -p packages/sithis-tui/tsconfig.build.json",
+    "setup": "node scripts/setup.mjs"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "1.4.0",
+    "@earendil-works/pi-tui": "file:packages/pi-tui-compat",
+    "sithis-tui": "file:packages/sithis-tui"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2",
+    "@types/node": "22.19.19"
+  },
+  "overrides": {
+    "protobufjs": "7.6.6"
+  }
+}

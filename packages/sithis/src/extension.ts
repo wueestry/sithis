@@ -1,7 +1,7 @@
 import { Type } from '@earendil-works/pi-ai';
 import { defineTool, type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { Store, dispatch } from './core.mjs';
-import { HELP, splitWord, parsePayload, listEngagements, guidedScope } from './commands.mjs';
+import { HELP, splitWord, parsePayload, listEngagements, guidedScope, engagementMenu, formatStatus, formatEngagementList, SetupCancelled } from './commands.mjs';
 
 export default function (pi: ExtensionAPI) {
   let selected: string | undefined;
@@ -11,12 +11,13 @@ export default function (pi: ExtensionAPI) {
     for (const entry of ctx.sessionManager.getBranch()) {
       if (entry.type === 'custom' && entry.customType === 'sithis-engagement') selected = (entry.data as { id?: string })?.id;
     }
+    ctx.ui.setStatus?.('sithis-engagement', selected ? `Engagement: ${selected}` : undefined);
   };
   pi.on('session_start', restoreSelection);
   pi.on('session_tree', restoreSelection);
   pi.on('tool_call', event => {
     if (selected && !['sithis_assess', 'sithis_inspect'].includes(event.toolName)) {
-      return { block: true, reason: 'Engagement mode allows only sithis_assess. Use /engagement leave to return to general Pi tools. This is a tool policy, not an OS sandbox.' };
+      return { block: true, reason: 'Engagement mode allows only Sithis assessment tools. Use /engagement leave to return to general Pi tools. This is a tool policy, not an OS sandbox.' };
     }
   });
   pi.registerTool(defineTool({
@@ -55,28 +56,34 @@ export default function (pi: ExtensionAPI) {
     description: 'Guided setup: new [ID]. File setup: new ID @scope.json. Also: help, list, resume ID, status, report, review, capture, leave.',
     handler: async (args, ctx) => {
       try {
-        const [operation, rest] = splitWord(args);
+        let [operation, rest] = splitWord(args);
         const store = new Store(); let value;
+        if (!operation && ctx.hasUI && ctx.ui.select) {
+          operation = await engagementMenu(ctx.ui, selected, listEngagements(store)) ?? '';
+          if (!operation) return;
+        }
         if (!operation || operation === 'help') {
           const saved = listEngagements(store);
           value = HELP + (saved.length ? '\n\nSaved engagements: ' + saved.map(e => e.id).join(', ') : '\n\nNo saved engagements yet. Start with /engagement new.');
         } else if (operation === 'list') {
           const saved = listEngagements(store);
-          value = saved.length ? saved : 'No saved engagements yet. Start with /engagement new.';
+          value = formatEngagementList(saved);
         } else if (operation === 'leave') {
           selected = undefined;
           pi.appendEntry('sithis-engagement', { id: null });
           value = 'Returned to general Pi tools.';
         } else if (operation === 'new') {
           let [id, payload] = splitWord(rest);
+          if (id && listEngagements(store).some(e => e.id === id)) throw new Error(`Engagement "${id}" already exists. Use /engagement resume ${id}.`);
           let scope;
           if (!payload) {
-            if (!ctx.hasUI) throw new Error('Guided setup needs interactive Pi. Use /engagement new ID @scope.json or /engagement help.');
-            const setup = await guidedScope(ctx.ui, id);
+            if (!ctx.hasUI) throw new Error('Guided setup needs interactive Sithis. Use /engagement new ID @scope.json or /engagement help.');
+            const setup = await guidedScope(ctx.ui, id, { existingIds: listEngagements(store).map(e => e.id) });
             id = setup.id;
             scope = setup.scope;
           } else scope = parsePayload(payload, ctx.cwd);
-          value = await dispatch(store, 'new', id, scope);
+          await dispatch(store, 'new', id, scope);
+          value = formatStatus(await dispatch(store, 'status', id));
           selected = id;
           pi.appendEntry('sithis-engagement', { id });
         } else if (operation === 'resume') {
@@ -95,14 +102,19 @@ export default function (pi: ExtensionAPI) {
           }
           selected = id;
           pi.appendEntry('sithis-engagement', { id });
+          value = formatStatus(value);
         } else {
           if (!['status','report','review','capture'].includes(operation)) throw new Error('Unknown engagement command. Run /engagement help for commands and examples.');
           if (!selected) {
             value = 'No engagement selected. Create one with /engagement new, or resume saved work with /engagement resume ID.\n\n' + HELP;
-          } else value = await dispatch(store, operation, selected, ['review','capture'].includes(operation) ? parsePayload(rest, ctx.cwd) : {});
+          } else {
+            value = await dispatch(store, operation, selected, ['review','capture'].includes(operation) ? parsePayload(rest, ctx.cwd) : {});
+            if (operation === 'status') value = formatStatus(value);
+          }
         }
+        ctx.ui.setStatus?.('sithis-engagement', selected ? `Engagement: ${selected}` : undefined);
         pi.sendMessage({ customType: 'sithis-status', content: typeof value === 'string' ? value : JSON.stringify(value, null, 2), display: true }, { triggerTurn: false });
-      } catch (error) { ctx.ui.notify((error as Error).message, 'error'); }
+      } catch (error) { ctx.ui.notify((error as Error).message, error instanceof SetupCancelled ? 'info' : 'error'); }
     },
   });
 }

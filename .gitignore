@@ -10,3 +10,7 @@ agent/auth.json
 context-mode
 
 .env
+/node_modules/
+/packages/sithis-tui/dist/
+/packages/sithis-tui/node_modules/
+__pycache__/

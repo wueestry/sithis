@@ -1,9 +1,8 @@
 {
-  "kind": "pi-managed-install",
+  "kind": "sithis-sdk-install",
   "schemaVersion": 1,
-  "layout": "releases-v1",
-  "entrypoint": {
-    "type": "symlink",
-    "path": "/home/kali/.local/bin/pi"
+  "entrypoints": {
+    "sithis": { "type": "symlink", "path": "/home/kali/.local/bin/sithis" },
+    "pi": { "type": "symlink", "path": "/home/kali/.local/bin/pi" }
   }
 }

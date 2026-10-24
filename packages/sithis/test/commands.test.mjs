@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { parsePayload, splitWord, guidedScope } from '../src/commands.mjs';
+import { parsePayload, splitWord, guidedScope, engagementMenu, formatStatus } from '../src/commands.mjs';
 
 test('command payloads accept inline JSON, shell quotes and bare or @file paths', t => {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'sithis-command-'));
@@ -33,7 +33,25 @@ test('guided setup collects explicit scope, handles cancellation and rejects inv
   assert.deepEqual(setup.scope.allowed,['app.test','api.test']);
   assert.equal(setup.scope.maxRequests,100);
   await assert.rejects(guidedScope({input:async()=>undefined}),/cancelled/);
-  await assert.rejects(guidedScope({input:async()=>''}),/required/);
-  const invalid=['app.test','443','yesterday','approval',''];
-  await assert.rejects(guidedScope({input:async()=>invalid.shift()},'demo'),/expiry/);
+  const errors=[];
+  const retry=['','bad id','valid-id','http://bad','app.test','NaN','0','443','yesterday',new Date(Date.now()-1000).toISOString(),expires,'','approval',''];
+  const corrected=await guidedScope({input:async()=>retry.shift(),notify:message=>errors.push(message)});
+  assert.equal(corrected.id,'valid-id');
+  assert.deepEqual(corrected.scope.allowed,['app.test']);
+  assert.equal(errors.length,8);
+  await assert.rejects(guidedScope({input:async()=>undefined},'existing',{existingIds:['existing']}),/already exists/);
+  const decline=['app.test','443',expires,'approval',''];
+  await assert.rejects(guidedScope({input:async()=>decline.shift(),confirm:async()=>false},'declined'),/cancelled/);
+});
+
+
+test('engagement menu exposes actions appropriate to saved and selected state',async()=>{
+  let choices;
+  const ui={select:async(_title,items)=>{choices=items;return 'New engagement';}};
+  assert.equal(await engagementMenu(ui,undefined,[]),'new');
+  assert.deepEqual(choices,['New engagement','Help']);
+  await engagementMenu(ui,'demo',[{id:'demo'}]);
+  assert.ok(choices.includes('Resume engagement'));
+  assert.ok(choices.includes('View status'));
+  assert.equal(await engagementMenu({select:async()=>undefined},undefined,[]),undefined);
 });

@@ -1,0 +1,28 @@
+#!/bin/sh
+case "$0" in
+  */*) sithis_launcher="$0" ;;
+  *) sithis_launcher=$(command -v "$0") || exit 127 ;;
+esac
+while [ -L "$sithis_launcher" ]; do
+  sithis_link=$(readlink "$sithis_launcher") || exit 1
+  case "$sithis_link" in
+    /*) sithis_launcher="$sithis_link" ;;
+    *) sithis_launcher=${sithis_launcher%/*}/$sithis_link ;;
+  esac
+done
+sithis_bin_dir=$(CDPATH= cd -P "${sithis_launcher%/*}" && pwd) || exit 1
+sithis_agent_dir=${sithis_bin_dir%/*}
+sithis_root=${sithis_agent_dir%/*}
+sithis_node_bin=${XDG_DATA_HOME:-$HOME/.local/share}/pi-node/current/bin
+if [ -x "$sithis_node_bin/node" ]; then
+  PATH=$sithis_node_bin:$PATH
+  export PATH
+fi
+if [ ! -f "$sithis_root/node_modules/@earendil-works/pi-coding-agent/dist/index.js" ] || [ ! -f "$sithis_root/packages/sithis-tui/dist/index.js" ]; then
+  printf 'Sithis SDK or local TUI build is missing. Run npm run setup in %s first.\n' "$sithis_root" >&2
+  exit 1
+fi
+PI_CODING_AGENT_DIR=${PI_CODING_AGENT_DIR:-$sithis_agent_dir}
+export PI_CODING_AGENT_DIR
+unset PI_MANAGED_INSTALL_ROOT
+exec node "$sithis_root/apps/sithis/main.mjs" "$@"

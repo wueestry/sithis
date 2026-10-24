@@ -6,8 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Store } from '../src/core.mjs';
 const repo = fileURLToPath(new URL('../../../', import.meta.url));
-const version = fs.readFileSync(path.join(repo,'agent/install/current-version'),'utf8').trim();
-const loaderPath = path.join(repo,`agent/install/releases/${version}/node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/loader.js`);
+const loaderPath = path.join(repo,'node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/loader.js');
 const installed = fs.existsSync(loaderPath);
 
 test('installed Pi loads tools, operator controls, resumed scope policy and role definitions', { skip: !installed && 'Install Pi to run host integration' }, async t => {
@@ -41,7 +40,7 @@ test('installed Pi loads tools, operator controls, resumed scope policy and role
   assert.match(status.content[0].text,/demo/);
   await command.handler('leave',ctx); assert.equal(await gate({toolName:'bash'}),undefined);
   // Restoring an old branch restores its engagement gate.
-  await extension.handlers.get('session_tree')[0]({}, {sessionManager:{getBranch:()=>entries.slice(0,1)}});
+  await extension.handlers.get('session_tree')[0]({}, {...ctx,sessionManager:{getBranch:()=>entries.slice(0,1)}});
   assert.equal((await gate({toolName:'bash'})).block,true);
   // Exercise the slash command exactly as an operator types it.
   const scope = {allowed:['127.0.0.1'],ports:[80],expires:new Date(Date.now()+60000).toISOString(),authorization:'fixture approval'};
@@ -77,6 +76,24 @@ test('installed Pi loads tools, operator controls, resumed scope policy and role
   await command.handler('resume',{...interactive,ui:{...ctx.ui,select:async()=> 'demo'}});
   assert.equal(errors.length,0);
   await assert.rejects(tool.execute('test',{engagement:'wizard',operation:'status'}),/differs/);
+  // Menu actions use the same operator path and preserve cancellation semantics.
+  assert.equal(extension.commands.has('engagment'),false);
+  const menuAnswers=['menu-demo','127.0.0.1','bad-port','80',scope.expires,'menu approval',''];
+  const statuses=[];
+  const menuUi={...ctx.ui,select:async()=> 'New engagement',input:async()=>menuAnswers.shift(),confirm:async()=>true,setStatus:(key,text)=>statuses.push({key,text})};
+  await command.handler('',{...interactive,ui:menuUi});
+  assert.equal(store.load('menu-demo').id,'menu-demo');
+  assert.match(errors.pop(),/port numbers/);
+  assert.equal(statuses.at(-1).text,'Engagement: menu-demo');
+  await command.handler('new menu-demo @"scope file.json"',interactive);
+  assert.match(errors.pop(),/already exists/);
+  const beforeCancel=entries.length;
+  await command.handler('',{...interactive,ui:{...menuUi,select:async()=>undefined}});
+  assert.equal(entries.length,beforeCancel);
+  const rejectedAnswers=['declined','127.0.0.1','80',scope.expires,'approval',''];
+  await command.handler('new',{...interactive,ui:{...menuUi,input:async()=>rejectedAnswers.shift(),confirm:async()=>false}});
+  assert.match(errors.pop(),/cancelled/);
+  assert.equal(fs.existsSync(store.dir('declined')),false);
   const { discoverAgents } = await import(path.join(repo,'agent/npm/node_modules/pi-subagents/src/agents/agents.js'));
   const discovered = discoverAgents(repo,'both');
   const agents = discovered.agents.filter(a=>a.packageSourceName==='@sithis/pi-pentest');

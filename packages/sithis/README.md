@@ -7,9 +7,9 @@ specialists and `/engagement` operator commands.
 
 ## Start
 
-Restart Pi after pulling these changes; the checkout's settings already include
-`../packages/sithis`. No installation of ptai or additional npm dependencies is
-required. From the repository root:
+Install/restart Sithis after pulling these changes; the checkout's settings already include
+`../packages/sithis`. No installation of ptai is required. Build the SDK host and local TUI with
+`npm run setup` before running the host integration tests. From the repository root:
 
 ```sh
 npm test --prefix packages/sithis
@@ -45,7 +45,9 @@ node packages/sithis/src/cli.mjs new customer-demo @my-scope.json
 node packages/sithis/src/cli.mjs resume customer-demo
 ```
 
-In Pi, start guided setup with `/engagement new`. You can also load a scope
+In Sithis, enter `/engagement` for the menu or `/engagement new` for guided setup.
+Invalid fields can be retried without re-entering previous answers. Review the
+completed scope before saving; Escape cancels without creating an engagement. You can also load a scope
 file directly: `/engagement new customer-demo @my-scope.json` (plain file paths
 work too). Relative paths resolve from Pi's working directory; quote paths with
 spaces. `/engagement help` shows examples and `/engagement list` shows saved work.

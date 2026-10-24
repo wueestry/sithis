@@ -5,6 +5,10 @@
     "context-mode": "1.0.169",
     "pi-provider-litellm": "4.4.2",
     "pi-subagents": "0.81.0",
-    "pi-web-access": "0.44.0"
+    "pi-web-access": "0.44.0",
+    "typebox": "1.3.27"
+  },
+  "allowScripts": {
+    "better-sqlite3@12.11.1": true
   }
 }

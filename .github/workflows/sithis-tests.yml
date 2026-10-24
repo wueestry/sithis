@@ -3,12 +3,20 @@ on: [push, pull_request]
 permissions:
   contents: read
 jobs:
-  web-api-workflow:
+  sdk-and-assessment:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - run: npm test --prefix packages/sithis
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            agent/npm/package-lock.json
+      - run: npm run setup -- --no-links
+      - run: npm test
+      - run: npm run typecheck
+      - run: npm run test:tui
       - run: npm run demo --prefix packages/sithis
+      - run: node apps/sithis/main.mjs --doctor
