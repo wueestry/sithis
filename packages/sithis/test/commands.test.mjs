@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { parsePayload, splitWord, guidedScope, engagementMenu, formatStatus } from '../src/commands.mjs';
+import { parsePayload, splitWord, guidedScope, engagementMenu, formatStatus, formatDashboard, formatPending, formatCoverageGaps } from '../src/commands.mjs';
 
 test('command payloads accept inline JSON, shell quotes and bare or @file paths', t => {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'sithis-command-'));
@@ -83,6 +83,64 @@ test('engagement menu exposes actions appropriate to saved and selected state',a
   assert.deepEqual(choices,['New engagement','Help']);
   await engagementMenu(ui,'demo',[{id:'demo'}]);
   assert.ok(choices.includes('Resume engagement'));
-  assert.ok(choices.includes('View status'));
+  assert.ok(choices.includes('View dashboard'));
   assert.equal(await engagementMenu({select:async()=>undefined},undefined,[]),undefined);
+});
+
+function dashboardState() {
+  return {
+    id: 'dashboard', scope: { allowed: ['app.test'], excluded: [], ports: [443], expires: '2030-01-01T04:00:00Z' },
+    requestBudget: { used: 24, total: 100 }, assets: [{ url: 'https://app.test/' }],
+    findings: [
+      { id: 'machine', title: 'Marker observation', status: 'verified', severity: 'low', verificationSource: 'http-marker' },
+      { id: 'manual', title: 'Reviewed issue', status: 'verified', severity: 'high', verificationSource: 'manual-review' },
+      { id: 'candidate', title: 'Needs review', status: 'candidate', severity: 'low' },
+      { id: 'fixed', title: 'Patched issue', status: 'fixed', severity: 'low' },
+      { id: 'done', title: 'Retested issue', status: 'retested', severity: 'low' },
+    ],
+    pending: [{ finding: 'candidate', next: 'manual-review' }, { finding: 'fixed', next: 'retest' }],
+    coverage: [
+      { status: 'tested', url: 'https://app.test/tested', check: 'marker', role: 'anonymous' },
+      { status: 'blocked', url: 'https://app.test/private', check: 'access', role: 'user', parameter: 'id', reason: 'Missing credentials' },
+      { status: 'skipped', url: 'https://app.test/checkout', check: 'workflow', role: 'anonymous', reason: 'Outside rules of engagement' },
+      { status: 'unknown', url: 'https://app.test/api', check: 'inventory', role: 'anonymous' },
+    ],
+  };
+}
+
+test('dashboard summarizes persisted states without implying complete coverage', () => {
+  const state = dashboardState();
+  const text = formatDashboard(state, Date.parse('2030-01-01T00:18:00Z'));
+  assert.match(text, /Expires in: 3h 42m/);
+  assert.match(text, /24\/100 · 76 remaining/);
+  assert.match(text, /2 verified · 1 awaiting validation · 1 fixed · 1 retested/);
+  assert.match(text, /1 machine · 1 manual/);
+  assert.match(text, /1 tested · 1 blocked · 1 skipped · 1 unknown/);
+  assert.match(text, /total application coverage is unknown/);
+  assert.match(text, /Pending work: 2/);
+  assert.match(formatStatus(state), /Allowed: app.test/);
+  assert.match(formatPending(state), /Manual review required: Needs review/);
+  assert.match(formatPending(state), /Retest fix: Patched issue/);
+  const gaps = formatCoverageGaps(state);
+  assert.match(gaps, /Missing credentials/);
+  assert.match(gaps, /parameter: id/);
+  assert.doesNotMatch(gaps, /https:\/\/app.test\/tested/);
+});
+
+test('dashboard handles expiry boundaries, exhausted budgets and empty work', async () => {
+  const state = dashboardState();
+  state.requestBudget.used = 100;
+  state.findings = []; state.pending = []; state.coverage = []; state.assets = [];
+  const expired = formatDashboard(state, Date.parse(state.scope.expires));
+  assert.match(expired, /dashboard \(expired\)/);
+  assert.match(expired, /0 remaining · budget exhausted/);
+  assert.match(expired, /0 verified · 0 awaiting validation/);
+  assert.match(formatPending(state), /No pending findings/);
+  assert.match(formatCoverageGaps(state), /does not imply complete coverage/);
+  let title;
+  assert.equal(await engagementMenu({ select: async (text) => { title = text; return 'View coverage gaps'; } }, state.id, [], state), 'coverage');
+  assert.match(title, /Requests: 100\/100/);
+  for (const [label, action] of [['Review pending findings', 'pending'], ['Retest fixes', 'retest'], ['View dashboard', 'status']]) {
+    assert.equal(await engagementMenu({ select: async () => label }, state.id, [], state), action);
+  }
 });

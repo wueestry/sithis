@@ -46,7 +46,12 @@ model requests or target tools you invoke.
 Enter `/engagement` to open the menu, or `/engagement new` to start the wizard.
 The wizard retries invalid fields without losing earlier answers and shows a
 scope summary before saving. Escape cancels without creating partial state.
-The selected engagement is shown in the footer.
+The selected engagement is shown in the footer. With an engagement selected,
+`/engagement` opens a dashboard showing time remaining, request budget, finding
+states, and recorded coverage. Its menu opens pending findings, coverage gaps,
+automatic fix retesting, and reports. `/engagement status` prints the dashboard;
+`/engagement pending` and `/engagement coverage` show details. Coverage counts
+represent recorded checks, not a percentage of the application tested.
 
 File-based setup and existing text commands remain available:
 

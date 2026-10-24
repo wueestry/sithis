@@ -14,7 +14,8 @@ Create an engagement:
   /engagement new my-test scope.json   Also accepts a plain file path
   /engagement new my-test {"allowed":[...],...}
 
-Then use /engagement status or /engagement report.
+Then use /engagement status for the dashboard or /engagement report.
+Use /engagement pending, /engagement coverage, or /engagement retest [ID].
 Resume saved work with /engagement resume ID; list it with /engagement list.
 Use /engagement leave to return to general Pi tools.
 Scope file paths resolve from Pi's working directory. The example template is
@@ -54,33 +55,67 @@ export function listEngagements(store) {
 export class SetupCancelled extends Error {
   constructor() { super('Setup cancelled; no engagement created.'); }
 }
-export function formatStatus(state) {
-  const expired = Date.parse(state.scope.expires) <= Date.now();
+function remainingTime(milliseconds) {
+  const minutes = Math.ceil(Math.abs(milliseconds) / 60000);
+  const days = Math.floor(minutes / 1440);
+  const hours = Math.floor(minutes % 1440 / 60);
+  const rest = minutes % 60;
+  return [days && `${days}d`, hours && `${hours}h`, (rest || !days && !hours) && `${rest}m`].filter(Boolean).join(' ');
+}
+export function formatDashboard(state, now = Date.now()) {
+  const remaining = Date.parse(state.scope.expires) - now;
+  const count = status => state.findings.filter(f => f.status === status).length;
+  const coverageCount = status => state.coverage.filter(c => c.status === status).length;
+  const budget = state.requestBudget;
+  const awaiting = state.findings.filter(f => ['candidate', 'reproduced', 'inconclusive'].includes(f.status)).length;
   return [
-    `Engagement: ${state.id}${expired ? ' (expired)' : ''}`,
+    `Engagement: ${state.id}${remaining <= 0 ? ' (expired)' : ''}`,
+    remaining <= 0 ? `Expired ${remainingTime(remaining)} ago` : `Expires in: ${remainingTime(remaining)}`,
+    `Deadline: ${new Date(state.scope.expires).toLocaleString(undefined, { timeZoneName: 'short' })}`,
+    `Requests: ${budget.used}/${budget.total} · ${Math.max(0, budget.total - budget.used)} remaining${budget.used >= budget.total ? ' · budget exhausted' : ''}`,
+    `Assets recorded: ${state.assets.length}`,
+    `Findings: ${count('verified')} verified · ${awaiting} awaiting validation · ${count('fixed')} fixed · ${count('retested')} retested · ${count('rejected')} rejected`,
+    `Verified evidence: ${state.findings.filter(f => f.status === 'verified' && f.verificationSource === 'http-marker').length} machine · ${state.findings.filter(f => f.status === 'verified' && f.verificationSource === 'manual-review').length} manual`,
+    `Coverage records: ${coverageCount('tested')} tested · ${coverageCount('blocked')} blocked · ${coverageCount('skipped')} skipped · ${coverageCount('unknown')} unknown`,
+    'Coverage reflects recorded checks; total application coverage is unknown.',
+    `Pending work: ${state.pending.length}`,
+  ].join('\n');
+}
+export function formatPending(state) {
+  const names = { verify: 'Verify recipe', 'manual-review': 'Manual review required', retest: 'Retest fix' };
+  return [`Pending work: ${state.id}`, '', ...state.pending.map(task => {
+    const finding = state.findings.find(f => f.id === task.finding);
+    return `${names[task.next] ?? task.next}: ${finding?.title ?? task.finding} (${task.finding})`;
+  }), ...(state.pending.length ? [] : ['No pending findings.'])].join('\n');
+}
+export function formatCoverageGaps(state) {
+  const gaps = state.coverage.filter(c => c.status !== 'tested');
+  return [`Coverage gaps: ${state.id}`, 'Only recorded checks are shown; unrecorded application areas remain unknown.', '',
+    ...gaps.map(c => `${c.status} | ${c.url} | role: ${c.role} | ${c.check}${c.parameter ? ` | parameter: ${c.parameter}` : ''}\n  ${c.reason || 'No reason recorded.'}`),
+    ...(gaps.length ? [] : ['No recorded coverage gaps. This does not imply complete coverage.']),
+  ].join('\n');
+}
+export function formatStatus(state) {
+  return [formatDashboard(state), '',
     `Allowed: ${state.scope.allowed.join(', ')}`,
     `Excluded: ${state.scope.excluded.join(', ') || 'none'}`,
     `Ports: ${state.scope.ports.join(', ')}`,
-    `Expires: ${state.scope.expires}`,
-    `Requests: ${state.requestBudget.used}/${state.requestBudget.total}`,
-    `Assets: ${state.assets.length} | Findings: ${state.findings.length} | Pending: ${state.pending.length}`,
-    '',
-    ...state.findings.map(f => `  ${f.severity} | ${f.status} | ${f.title} (${f.id})`),
-    '',
-    'Use /engagement report for the report, or ask the agent to investigate within this scope.',
+    `Expires: ${state.scope.expires}`, '',
+    ...state.findings.map(f => `  ${f.severity} | ${f.status} | ${f.title} (${f.id})`), '',
+    'Use /engagement pending, /engagement coverage, or /engagement report for details.',
   ].join('\n');
 }
 export function formatEngagementList(saved) {
   if (!saved.length) return 'No saved engagements yet. Start with /engagement new.';
   return ['Saved engagements', '', ...saved.map(e => `${e.id} | ${Date.parse(e.expires) <= Date.now() ? 'expired' : 'active'} | expires ${e.expires} | ${e.findings} findings`), '', 'Use /engagement resume ID to select one.'].join('\n');
 }
-export async function engagementMenu(ui, selected, saved) {
+export async function engagementMenu(ui, selected, saved, state) {
   const actions = ['New engagement'];
   if (saved.length) actions.push('Resume engagement');
-  if (selected) actions.push('View status', 'Generate report', 'Leave engagement');
+  if (selected) actions.push('View dashboard', 'Review pending findings', 'View coverage gaps', 'Retest fixes', 'Generate report', 'Leave engagement');
   actions.push('Help');
-  const action = await ui.select(selected ? `Engagement: ${selected}` : 'Sithis engagements', actions);
-  return { 'New engagement': 'new', 'Resume engagement': 'resume', 'View status': 'status', 'Generate report': 'report', 'Leave engagement': 'leave', Help: 'help' }[action];
+  const action = await ui.select(state ? formatDashboard(state) : selected ? `Engagement: ${selected}` : 'Sithis engagements', actions);
+  return { 'New engagement': 'new', 'Resume engagement': 'resume', 'View dashboard': 'status', 'Review pending findings': 'pending', 'View coverage gaps': 'coverage', 'Retest fixes': 'retest', 'Generate report': 'report', 'Leave engagement': 'leave', Help: 'help' }[action];
 }
 export async function guidedScope(ui, initialId, { existingIds = [] } = {}) {
   const exampleExpiry = new Date(Date.now() + 86400000).toISOString().replace(/\.\d{3}Z$/, 'Z');

@@ -74,6 +74,33 @@ There is deliberately no global active-engagement file: every tool and agent
 request names its engagement so concurrent sessions cannot silently switch one
 another's targets.
 
+## Engagement dashboard
+
+With an engagement selected, `/engagement` shows a summary in the menu:
+
+- Time remaining and a local deadline with timezone.
+- Requests used and remaining, including budget exhaustion.
+- Recorded assets and finding counts by status.
+- Machine and manual verification counts for currently verified findings.
+- Recorded tested, blocked, skipped, and unknown coverage checks.
+- Pending work, with links to details and existing workflows.
+
+`/engagement status` prints the dashboard and scope details. Choose **Review
+pending findings** or use `/engagement pending` to see the next step for each
+pending finding. Choose **View coverage gaps** or use `/engagement coverage` to
+see blocked, skipped, and unknown recorded checks with reasons. Counts describe
+recorded work; the total application surface remains unknown.
+
+Choose **Retest fixes** or use `/engagement retest` to select a fixed finding
+with a supported automatic recipe. Selecting a finding sends scoped target
+requests and consumes the existing request budget; Escape cancels. For scripting,
+use `/engagement retest FINDING_ID`. Manually verified fixes require manual
+retesting through `/engagement review`. Expired engagements remain inspectable;
+the runner continues to reject target requests after expiration.
+
+The dashboard reads saved state when opened; it does not start scans or refresh
+in the background. **Generate report** produces the existing Markdown report.
+
 ## Tool payloads
 
 `sithis_assess` accepts `{engagement, operation, data}`. Scope creation, evidence

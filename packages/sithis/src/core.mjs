@@ -256,7 +256,7 @@ export function coverage(store, id, input) {
 }
 export function handoff(store, id) {
   const s = store.load(id);
-  return { id, scope: s.scope, requestBudget: { used: s.requests, total: s.scope.maxRequests }, assets: s.assets, findings: s.findings.map(({id,title,status,severity,evidence}) => ({id,title,status,severity,evidence})), coverage: s.coverage, pending: s.findings.filter(f => ['candidate','reproduced','inconclusive','fixed'].includes(f.status)).map(f => ({finding: f.id, next: f.status === 'fixed' ? 'retest' : f.recipe ? 'verify' : 'manual-review'})), recentActions: s.actions.slice(-20) };
+  return { id, scope: s.scope, requestBudget: { used: s.requests, total: s.scope.maxRequests }, assets: s.assets, findings: s.findings.map(({id,title,status,severity,evidence,checks}) => ({id,title,status,severity,evidence, verificationSource: checks.findLast(c => (c.verdict ?? c.status) === status)?.oracle ?? null})), coverage: s.coverage, pending: s.findings.filter(f => ['candidate','reproduced','inconclusive','fixed'].includes(f.status)).map(f => ({finding: f.id, next: f.status === 'fixed' ? 'retest' : f.recipe ? 'verify' : 'manual-review'})), recentActions: s.actions.slice(-20) };
 }
 const safeText = value => String(value ?? '').replace(/[<>]/g, c => c === '<' ? '&lt;' : '&gt;');
 export function report(store, id) {

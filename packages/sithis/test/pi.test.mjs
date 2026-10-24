@@ -97,6 +97,33 @@ test('installed Pi loads tools, operator controls, resumed scope policy and role
   // Package agents come from the Sithis agent directory, as they do in the host.
   const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
   process.env.PI_CODING_AGENT_DIR = path.join(repo,'agent');
+  // Dashboard actions use saved state without target requests or selection changes.
+  for (const [label, expected] of [
+    ['View dashboard', /Requests: 0\/100/],
+    ['Review pending findings', /No pending findings/],
+    ['View coverage gaps', /does not imply complete coverage/],
+    ['Retest fixes', /No fixes with automatic retest recipes/],
+  ]) {
+    await command.handler('', { ...interactive, ui: { ...menuUi, select: async (title) => {
+      assert.match(title, /Engagement: menu-demo/);
+      assert.match(title, /Coverage records:/);
+      return label;
+    } } });
+    assert.match(messages.at(-1).content, expected);
+    assert.equal(store.load('menu-demo').requests, 0);
+  }
+  assert.equal(errors.length, 0);
+  store.transaction('menu-demo', state => state.findings.push({
+    id: 'fixed-test', title: 'Patched test', status: 'fixed', severity: 'low', evidence: [], checks: [],
+    recipe: { kind: 'http-marker' },
+  }));
+  const beforeRetestCancel = messages.length;
+  await command.handler('retest', { ...interactive, ui: { ...menuUi, select: async (title) => {
+    assert.match(title, /sends target requests/);
+    return undefined;
+  } } });
+  assert.equal(messages.length, beforeRetestCancel);
+  assert.equal(store.load('menu-demo').requests, 0);
   const { discoverAgents } = await import(path.join(repo,'agent/npm/node_modules/pi-subagents/src/agents/agents.js'));
   const discovered = discoverAgents(repo,'both');
   if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;

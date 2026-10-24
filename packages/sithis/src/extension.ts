@@ -1,7 +1,7 @@
 import { Type } from '@earendil-works/pi-ai';
 import { defineTool, type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { Store, dispatch } from './core.mjs';
-import { HELP, splitWord, parsePayload, listEngagements, guidedScope, engagementMenu, formatStatus, formatEngagementList, SetupCancelled } from './commands.mjs';
+import { HELP, splitWord, parsePayload, listEngagements, guidedScope, engagementMenu, formatStatus, formatPending, formatCoverageGaps, formatEngagementList, SetupCancelled } from './commands.mjs';
 
 export default function (pi: ExtensionAPI) {
   let selected: string | undefined;
@@ -53,13 +53,13 @@ export default function (pi: ExtensionAPI) {
     },
   }));
   pi.registerCommand('engagement', {
-    description: 'Guided setup: new [ID]. File setup: new ID @scope.json. Also: help, list, resume ID, status, report, review, capture, leave.',
+    description: 'Guided setup: new [ID]. File setup: new ID @scope.json. Also: help, list, resume ID, status, pending, coverage, retest [ID], report, review, capture, leave.',
     handler: async (args, ctx) => {
       try {
         let [operation, rest] = splitWord(args);
         const store = new Store(); let value;
         if (!operation && ctx.hasUI && ctx.ui.select) {
-          operation = await engagementMenu(ctx.ui, selected, listEngagements(store)) ?? '';
+          operation = await engagementMenu(ctx.ui, selected, listEngagements(store), selected ? await dispatch(store, 'status', selected) : undefined) ?? '';
           if (!operation) return;
         }
         if (!operation || operation === 'help') {
@@ -104,9 +104,27 @@ export default function (pi: ExtensionAPI) {
           pi.appendEntry('sithis-engagement', { id });
           value = formatStatus(value);
         } else {
-          if (!['status','report','review','capture'].includes(operation)) throw new Error('Unknown engagement command. Run /engagement help for commands and examples.');
+          if (!['status','pending','coverage','retest','report','review','capture'].includes(operation)) throw new Error('Unknown engagement command. Run /engagement help for commands and examples.');
           if (!selected) {
             value = 'No engagement selected. Create one with /engagement new, or resume saved work with /engagement resume ID.\n\n' + HELP;
+          } else if (operation === 'pending' || operation === 'coverage') {
+            const state = await dispatch(store, 'status', selected);
+            value = operation === 'pending' ? formatPending(state) : formatCoverageGaps(state);
+          } else if (operation === 'retest') {
+            let finding = rest.trim();
+            if (!finding) {
+              const eligible = store.load(selected).findings.filter(f => ['fixed','retested'].includes(f.status) && f.recipe?.kind === 'http-marker');
+              if (!eligible.length) {
+                value = 'No fixes with automatic retest recipes. Manually verified fixes require manual retesting through /engagement review.';
+              } else {
+                if (!ctx.hasUI) throw new Error('Use /engagement retest FINDING_ID.');
+                const choice = await ctx.ui.select('Retest fix (sends target requests)', eligible.map(f => `${f.title} (${f.id})`));
+                if (choice === undefined) return;
+                finding = eligible.find(f => `${f.title} (${f.id})` === choice)?.id ?? '';
+                if (!finding) return;
+              }
+            }
+            if (finding) value = await dispatch(store, 'retest', selected, { finding });
           } else {
             value = await dispatch(store, operation, selected, ['review','capture'].includes(operation) ? parsePayload(rest, ctx.cwd) : {});
             if (operation === 'status') value = formatStatus(value);

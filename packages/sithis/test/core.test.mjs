@@ -75,6 +75,7 @@ test('vulnerable and hardened fixtures: independent controls, report, capsule re
   const recipe = { kind: 'http-marker', url: base+'/probe', controlUrl: base+'/control', marker, status: 200, claim: 'The canary appears at /probe and is absent from /control' };
   const f = addFinding(store,'demo',{title:'Canary disclosure',url:recipe.url,severity:'low',recipe});
   const receipt = await verify(store,'demo',f.id); assert.equal(receipt.verdict,'verified'); assert.equal(receipt.evidence.length,4);
+  assert.equal(handoff(store,'demo').findings[0].verificationSource, 'http-marker');
   coverage(store,'demo',{url:recipe.url,role:'anonymous',check:'marker',status:'tested',evidence:receipt.evidence});
   assert.match(report(store,'demo'),/Canary disclosure/);
   const exported = capsule(store,'demo',f.id);
@@ -124,6 +125,7 @@ test('operator evidence capture supports manual verification and manual fix rete
   const f=addFinding(store,'manual',{title:'Manual browser finding',url:'http://127.0.0.1/',severity:'medium'});
   await dispatch(store,'review','manual',{finding:f.id,status:'verified',reviewer:'operator',reason:'Reproduced execution with controlled data',evidence:[evidence.id],oracle:'fake-oracle'});
   assert.equal(store.load('manual').findings[0].checks[0].oracle,'manual-review');
+  assert.equal(handoff(store,'manual').findings[0].verificationSource, 'manual-review');
   reviewFinding(store,'manual',f.id,{status:'fixed',reviewer:'operator',reason:'Patch applied'});
   reviewFinding(store,'manual',f.id,{status:'retested',reviewer:'operator',reason:'Replayed original steps after patch',evidence:[evidence.id]});
   assert.equal(store.load('manual').findings[0].status,'retested');
