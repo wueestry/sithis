@@ -55,6 +55,12 @@ automatic fix retesting, and reports. `/engagement status` prints the dashboard;
 `/engagement pending` and `/engagement coverage` show details. Coverage counts
 represent recorded checks, not a percentage of the application tested.
 
+Choose **Delete engagement** to remove the selected engagement and its artifacts
+after confirmation. Choose **Verify pending findings** to review a request plan
+and run supported checks sequentially. Escape pauses verification; reopening the
+action resumes unfinished work without repeating completed checks. These actions
+are also available as `/engagement delete` and `/engagement verify-pending`.
+
 File-based setup and existing text commands remain available:
 
 ```text

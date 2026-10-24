@@ -124,6 +124,56 @@ test('installed Pi loads tools, operator controls, resumed scope policy and role
   } } });
   assert.equal(messages.length, beforeRetestCancel);
   assert.equal(store.load('menu-demo').requests, 0);
+  // Guided workflow planning is operator-only and declining it creates no state.
+  store.transaction('menu-demo', state => state.findings.push({
+    id: 'pending-test', title: 'Candidate observation', status: 'candidate', severity: 'low', evidence: [], checks: [],
+    recipe: { kind: 'http-marker', url: 'http://127.0.0.1/probe', controlUrl: 'http://127.0.0.1/control', marker: 'CONTROLLED_CANARY', status: 200, claim: 'Marker observation' },
+  }));
+  await command.handler('', { ...interactive, ui: { ...menuUi, select: async () => 'Verify pending findings', confirm: async (title, body) => {
+    assert.match(title, /Verify pending/);
+    assert.match(body, /Estimated requests: 4/);
+    assert.match(body, /Candidate observation/);
+    return false;
+  } } });
+  assert.equal(store.load('menu-demo').verificationRun, undefined);
+  assert.equal(store.load('menu-demo').requests, 0);
+  await command.handler('verify-pending', { ...interactive, ui: { ...menuUi,
+    custom: async factory => new Promise(resolve => {
+      const component = factory({ requestRender() {} }, {}, {}, resolve);
+      assert.ok(component.render(80).length);
+      component.handleInput('\x1b');
+    }),
+  } });
+  assert.equal(store.load('menu-demo').verificationRun.status, 'paused');
+  assert.match(messages.at(-1).content, /Verification paused/);
+  await assert.rejects(tool.execute('test', { engagement: 'menu-demo', operation: 'delete' }), /Unknown operation/);
+  await assert.rejects(tool.execute('test', { engagement: 'menu-demo', operation: 'verify-pending' }), /Unknown operation/);
+
+  // Dashboard deletion requires confirmation and clears persisted selection and footer.
+  await command.handler('new disposable ' + JSON.stringify(scope), interactive);
+  const disposableBranch = entries.slice();
+  await command.handler('', { ...interactive, ui: { ...menuUi, select: async () => 'Delete engagement', confirm: async (title, body) => {
+    assert.match(title, /disposable/);
+    assert.match(body, /cannot be undone/);
+    assert.match(body, /evidence artifacts/);
+    return false;
+  } } });
+  assert.equal(store.load('disposable').id, 'disposable');
+  assert.equal((await gate({ toolName: 'bash' })).block, true);
+  await command.handler('delete', ctx);
+  assert.match(errors.pop(), /interactive confirmation/);
+  assert.equal(store.load('disposable').id, 'disposable');
+  await command.handler('delete other', { ...interactive, ui: menuUi });
+  assert.match(errors.pop(), /Resume the engagement/);
+  await command.handler('', { ...interactive, ui: { ...menuUi, select: async () => 'Delete engagement' } });
+  assert.equal(fs.existsSync(store.dir('disposable')), false);
+  assert.equal(entries.at(-1).data.id, null);
+  assert.equal(statuses.at(-1).text, undefined);
+  assert.equal(await gate({ toolName: 'bash' }), undefined);
+  assert.equal(store.load('demo').id, 'demo');
+  await extension.handlers.get('session_tree')[0]({}, { ...ctx, sessionManager: { getBranch: () => disposableBranch } });
+  assert.equal(await gate({ toolName: 'bash' }), undefined);
+  assert.equal(errors.length, 0);
   const { discoverAgents } = await import(path.join(repo,'agent/npm/node_modules/pi-subagents/src/agents/agents.js'));
   const discovered = discoverAgents(repo,'both');
   if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;

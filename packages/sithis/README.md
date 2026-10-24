@@ -106,6 +106,54 @@ the runner continues to reject target requests after expiration.
 The dashboard reads saved state when opened; it does not start scans or refresh
 in the background. **Generate report** produces the existing Markdown report.
 
+Choose **Delete engagement** to permanently remove the selected engagement,
+including findings, evidence files, workflow progress, and reports. The confirmation
+names the engagement and storage directory; Escape or declining leaves it intact.
+`/engagement delete` opens the same confirmation. Deletion is an interactive
+operator action and is unavailable to model tools. Successful deletion clears
+the selection and footer; other engagements remain intact.
+
+Deletion refuses to proceed while a target request, verification, or workflow
+is active, or while its storage lock is held. After a process crash, inspect
+running processes before removing stale `.active-*` markers or
+`.verification.lock` directories. These protections do not forcibly stop another
+session's work. Restoring a conversation pointing at a deleted engagement leaves
+that engagement unselected.
+
+## Guided verification
+
+Choose **Verify pending findings** from the dashboard, or run
+`/engagement verify-pending`. Review the planned finding IDs, probe/control URLs,
+and request estimate before confirming. Planning does not send target requests.
+The current marker recipe requires four requests per finding: two probes and
+two negative controls. Unsupported or malformed recipes remain pending for
+manual review, with reasons shown in the plan.
+
+Checks run sequentially under the existing scope, expiration, shared budgets,
+and per-host rate limits. The workflow checks that there is budget for a complete
+finding before starting it. Concurrent requests from other sessions can still
+consume budget, so the runner continues to enforce limits on every request.
+Errors and denials produce blocked tasks with reasons; they never promote a
+finding to verified. Completed checks produce the existing machine receipts.
+
+The progress view shows verified, inconclusive, blocked, and pending counts.
+Press Escape or Ctrl+C in that view to pause. Progress is saved after each task;
+`/engagement verify-pending` reviews and resumes unfinished work, skipping
+completed checks. An interrupted individual check restarts its full recipe and
+its earlier requests still count against the budget. A committed receipt is
+recovered if a process stops between verification and its workflow checkpoint.
+After an unclean process exit, inspect and remove stale operation markers and
+locks as described above before resuming.
+
+Use `/engagement verify-pending new` to review a fresh plan after changing recipes
+or adding findings. A normal resume retains the original task list. Inconclusive
+checks count as completed workflow steps but remain unconfirmed findings; a fresh
+plan may include them again. The dashboard shows the last workflow's status and
+completion count, and pending-work details include saved blocker reasons.
+
+This workflow verifies recorded candidates. It does not discover endpoints,
+run specialist agents, or automatically retest findings marked fixed.
+
 ## Tool payloads
 
 `sithis_assess` accepts `{engagement, operation, data}`. Scope creation, evidence

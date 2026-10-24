@@ -79,6 +79,26 @@ export class Store {
   }
   dir(id) { assert(idPattern.test(id), 'Invalid engagement ID'); return path.join(this.root, id); }
   load(id) { return read(path.join(this.dir(id), 'state.json')); }
+  beginOperation(id) {
+    const marker = path.join(this.dir(id), `.active-${randomUUID()}`);
+    this.transaction(id, () => fs.writeFileSync(marker, '', { flag: 'wx', mode: 0o600 }));
+    return () => fs.unlinkSync(marker);
+  }
+  delete(id) {
+    const dir = this.dir(id);
+    assert(!fs.lstatSync(dir).isSymbolicLink() && fs.realpathSync(dir) === path.join(fs.realpathSync(this.root), id), 'Refusing to delete an engagement through a symlink');
+    const lock = path.join(dir, '.lock');
+    try { fs.mkdirSync(lock, { mode: 0o700 }); }
+    catch { throw new Error('Engagement busy or stale lock; cannot delete'); }
+    let removed = false;
+    try {
+      assert(!fs.readdirSync(dir).some(name => name.startsWith('.active-') || name === '.verification.lock'), 'Engagement has active or interrupted operations; cannot delete until they stop and stale locks are inspected');
+      const trash = path.join(this.root, `.deleted-${randomUUID()}`);
+      fs.renameSync(dir, trash);
+      removed = true;
+      fs.rmSync(trash, { recursive: true });
+    } finally { if (!removed) fs.rmdirSync(lock); }
+  }
   transaction(id, action) {
     const dir = this.dir(id), lock = path.join(dir, '.lock');
     try { fs.mkdirSync(lock, { mode: 0o700 }); } catch { throw new Error('Engagement busy or stale lock; retry, or inspect .lock after checking running processes'); }
@@ -151,6 +171,11 @@ function requestPinned(target, signal) {
   });
 }
 export async function probe(store, id, url, { signal, resolver = lookup } = {}) {
+  const release = store.beginOperation(id);
+  try { return await probeActive(store, id, url, { signal, resolver }); }
+  finally { release(); }
+}
+async function probeActive(store, id, url, { signal, resolver }) {
   let resolved;
   try {
     resolved = await resolveTarget(store.load(id).scope, url, resolver);
@@ -186,7 +211,7 @@ export function addFinding(store, id, input) {
     return finding;
   });
 }
-function validateRecipe(recipe) {
+export function validateRecipe(recipe) {
   assert(recipe && recipe.kind === 'http-marker', 'Supported automatic oracle: http-marker; use manual review for other classes');
   assert(typeof recipe.marker === 'string' && recipe.marker.length >= 8 && recipe.marker.length <= 256, 'Marker must be 8–256 characters');
   assert(Number.isInteger(recipe.status) && recipe.status >= 200 && recipe.status < 600, 'Expected HTTP status required');
@@ -202,9 +227,16 @@ async function pause(ms, signal) {
     signal?.addEventListener('abort', abort, { once: true });
   });
 }
-export async function verify(store, id, findingId, { signal, retest = false } = {}) {
+export async function verify(store, id, findingId, { signal, retest = false, expectedRecipeHash, expectedStatus } = {}) {
+  const release = store.beginOperation(id);
+  try { return await verifyActive(store, id, findingId, { signal, retest, expectedRecipeHash, expectedStatus }); }
+  finally { release(); }
+}
+async function verifyActive(store, id, findingId, { signal, retest, expectedRecipeHash, expectedStatus }) {
+  signal?.throwIfAborted();
   const finding = store.load(id).findings.find(f => f.id === findingId);
   assert(finding, 'Unknown finding');
+  if (expectedRecipeHash) assert(hash(JSON.stringify(finding.recipe)) === expectedRecipeHash && finding.status === expectedStatus, 'Finding changed since planning; review it before starting a new workflow.');
   assert(!retest || ['fixed','retested'].includes(finding.status), 'Mark finding fixed before retesting');
   validateRecipe(finding.recipe);
   const recipe = finding.recipe, evidence = []; let passed = 0, controls = 0;
@@ -258,7 +290,7 @@ export function coverage(store, id, input) {
 }
 export function handoff(store, id) {
   const s = store.load(id);
-  return { id, scope: s.scope, requestBudget: { used: s.requests, total: s.scope.maxRequests, unlimited: s.scope.maxRequests === 0 }, assets: s.assets, findings: s.findings.map(({id,title,status,severity,evidence,checks}) => ({id,title,status,severity,evidence, verificationSource: checks.findLast(c => (c.verdict ?? c.status) === status)?.oracle ?? null})), coverage: s.coverage, pending: s.findings.filter(f => ['candidate','reproduced','inconclusive','fixed'].includes(f.status)).map(f => ({finding: f.id, next: f.status === 'fixed' ? 'retest' : f.recipe ? 'verify' : 'manual-review'})), recentActions: s.actions.slice(-20) };
+  return { id, scope: s.scope, requestBudget: { used: s.requests, total: s.scope.maxRequests, unlimited: s.scope.maxRequests === 0 }, assets: s.assets, findings: s.findings.map(({id,title,status,severity,evidence,checks}) => ({id,title,status,severity,evidence, verificationSource: checks.findLast(c => (c.verdict ?? c.status) === status)?.oracle ?? null})), coverage: s.coverage, pending: s.findings.filter(f => ['candidate','reproduced','inconclusive','fixed'].includes(f.status)).map(f => ({finding: f.id, next: f.status === 'fixed' ? 'retest' : f.recipe ? 'verify' : 'manual-review'})), verificationWorkflow: s.verificationRun ? { id: s.verificationRun.id, status: s.verificationRun.status, updated: s.verificationRun.updated, tasks: s.verificationRun.tasks.map(({finding,title,status,reason}) => ({finding,title,status,reason})) } : null, recentActions: s.actions.slice(-20) };
 }
 const safeText = value => String(value ?? '').replace(/[<>]/g, c => c === '<' ? '&lt;' : '&gt;');
 export function report(store, id) {

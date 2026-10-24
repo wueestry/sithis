@@ -16,6 +16,7 @@ Create an engagement:
 
 Then use /engagement status for the dashboard or /engagement report.
 Use /engagement pending, /engagement coverage, or /engagement retest [ID].
+Use /engagement verify-pending for guided verification; /engagement delete removes the selected engagement after confirmation.
 Resume saved work with /engagement resume ID; list it with /engagement list.
 Use /engagement leave to return to general Pi tools.
 Scope file paths resolve from Pi's working directory. The example template is
@@ -84,6 +85,7 @@ export function formatDashboard(state, now = Date.now()) {
     `Coverage records: ${coverageCount('tested')} tested · ${coverageCount('blocked')} blocked · ${coverageCount('skipped')} skipped · ${coverageCount('unknown')} unknown`,
     'Coverage reflects recorded checks; total application coverage is unknown.',
     `Pending work: ${state.pending.length}`,
+    ...(state.verificationWorkflow ? [`Verification workflow: ${state.verificationWorkflow.status} · ${state.verificationWorkflow.tasks.filter(task => ['verified', 'inconclusive'].includes(task.status)).length}/${state.verificationWorkflow.tasks.length} completed`] : []),
   ].join('\n');
 }
 export function formatPending(state) {
@@ -91,7 +93,7 @@ export function formatPending(state) {
   return [`Pending work: ${state.id}`, '', ...state.pending.map(task => {
     const finding = state.findings.find(f => f.id === task.finding);
     return `${names[task.next] ?? task.next}: ${finding?.title ?? task.finding} (${task.finding})`;
-  }), ...(state.pending.length ? [] : ['No pending findings.'])].join('\n');
+  }), ...(state.pending.length ? [] : ['No pending findings.']), ...(state.verificationWorkflow?.tasks.filter(task => task.reason).map(task => `${task.title}: ${task.reason}`) ?? [])].join('\n');
 }
 export function formatCoverageGaps(state) {
   const gaps = state.coverage.filter(c => c.status !== 'tested');
@@ -117,10 +119,10 @@ export function formatEngagementList(saved) {
 export async function engagementMenu(ui, selected, saved, state) {
   const actions = ['New engagement'];
   if (saved.length) actions.push('Resume engagement');
-  if (selected) actions.push('View dashboard', 'Review pending findings', 'View coverage gaps', 'Retest fixes', 'Generate report', 'Leave engagement');
+  if (selected) actions.push('View dashboard', 'Review pending findings', 'Verify pending findings', 'View coverage gaps', 'Retest fixes', 'Generate report', 'Leave engagement', 'Delete engagement');
   actions.push('Help');
   const action = await ui.select(state ? formatDashboard(state) : selected ? `Engagement: ${selected}` : 'Sithis engagements', actions);
-  return { 'New engagement': 'new', 'Resume engagement': 'resume', 'View dashboard': 'status', 'Review pending findings': 'pending', 'View coverage gaps': 'coverage', 'Retest fixes': 'retest', 'Generate report': 'report', 'Leave engagement': 'leave', Help: 'help' }[action];
+  return { 'New engagement': 'new', 'Resume engagement': 'resume', 'View dashboard': 'status', 'Review pending findings': 'pending', 'Verify pending findings': 'verify-pending', 'Delete engagement': 'delete', 'View coverage gaps': 'coverage', 'Retest fixes': 'retest', 'Generate report': 'report', 'Leave engagement': 'leave', Help: 'help' }[action];
 }
 export async function guidedScope(ui, initialId, { existingIds = [] } = {}) {
   const exampleExpiry = new Date(Date.now() + 86400000).toISOString().replace(/\.\d{3}Z$/, 'Z');

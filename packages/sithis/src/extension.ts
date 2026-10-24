@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import { Text, matchesKey, Key } from '@earendil-works/pi-tui';
+import { planVerification, runVerification, formatVerificationPlan, formatVerificationResult } from './verification-workflow.mjs';
 import { Type } from '@earendil-works/pi-ai';
 import { defineTool, type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { Store, dispatch } from './core.mjs';
@@ -11,6 +14,7 @@ export default function (pi: ExtensionAPI) {
     for (const entry of ctx.sessionManager.getBranch()) {
       if (entry.type === 'custom' && entry.customType === 'sithis-engagement') selected = (entry.data as { id?: string })?.id;
     }
+    if (selected && !fs.existsSync(new Store().dir(selected))) selected = undefined;
     ctx.ui.setStatus?.('sithis-engagement', selected ? `Engagement: ${selected}` : undefined);
   };
   pi.on('session_start', restoreSelection);
@@ -53,11 +57,15 @@ export default function (pi: ExtensionAPI) {
     },
   }));
   pi.registerCommand('engagement', {
-    description: 'Guided setup: new [ID]. File setup: new ID @scope.json. Also: help, list, resume ID, status, pending, coverage, retest [ID], report, review, capture, leave.',
+    description: 'Guided setup: new [ID]. File setup: new ID @scope.json. Also: help, list, resume ID, status, pending, coverage, retest [ID], report, review, capture, verify-pending, delete, leave.',
     handler: async (args, ctx) => {
       try {
         let [operation, rest] = splitWord(args);
         const store = new Store(); let value;
+        if (selected && !fs.existsSync(store.dir(selected))) {
+          selected = undefined;
+          pi.appendEntry('sithis-engagement', { id: null });
+        }
         if (!operation && ctx.hasUI && ctx.ui.select) {
           operation = await engagementMenu(ctx.ui, selected, listEngagements(store), selected ? await dispatch(store, 'status', selected) : undefined) ?? '';
           if (!operation) return;
@@ -104,9 +112,49 @@ export default function (pi: ExtensionAPI) {
           pi.appendEntry('sithis-engagement', { id });
           value = formatStatus(value);
         } else {
-          if (!['status','pending','coverage','retest','report','review','capture'].includes(operation)) throw new Error('Unknown engagement command. Run /engagement help for commands and examples.');
+          if (!['status','pending','coverage','retest','report','review','capture','delete','verify-pending'].includes(operation)) throw new Error('Unknown engagement command. Run /engagement help for commands and examples.');
           if (!selected) {
             value = 'No engagement selected. Create one with /engagement new, or resume saved work with /engagement resume ID.\n\n' + HELP;
+          } else if (operation === 'verify-pending') {
+            if (!ctx.hasUI || !ctx.ui.confirm) throw new Error('Guided verification requires interactive plan review. Open /engagement in Sithis.');
+            const engagement = selected;
+            const plan = planVerification(store, engagement, { restart: rest.trim() === 'new' });
+            if (!plan.tasks.some(task => !['verified', 'inconclusive'].includes(task.status))) {
+              value = formatVerificationPlan(plan) + '\nNo automatic checks to run.';
+            } else if (await ctx.ui.confirm('Verify pending findings?', formatVerificationPlan(plan))) {
+              if (ctx.ui.custom) {
+                const outcome = await ctx.ui.custom<{ run?: Awaited<ReturnType<typeof runVerification>>; error?: string }>((tui, _theme, _kb, done) => {
+                  const controller = new AbortController();
+                  const text = new Text('Verifying pending findings…\nEscape pauses and saves progress.', 1, 1);
+                  void runVerification(store, engagement, plan, { signal: controller.signal, onProgress: run => {
+                    text.setText(formatVerificationResult(run) + '\nEscape pauses and saves progress.');
+                    tui.requestRender();
+                  } }).then(run => done({ run }), error => done({ error: error.message }));
+                  return {
+                    render: (width: number) => text.render(width),
+                    invalidate: () => text.invalidate(),
+                    handleInput: (data: string) => {
+                      if (matchesKey(data, Key.escape) || data === '\x03') {
+                        controller.abort(); text.setText('Pausing verification…'); tui.requestRender();
+                      }
+                    },
+                    dispose: () => controller.abort(),
+                  };
+                });
+                if (outcome.error) throw new Error(outcome.error);
+                value = formatVerificationResult(outcome.run);
+              } else value = formatVerificationResult(await runVerification(store, engagement, plan));
+            } else return;
+          } else if (operation === 'delete') {
+            if (!ctx.hasUI || !ctx.ui.confirm) throw new Error('Deleting an engagement requires interactive confirmation. Open /engagement in Sithis.');
+            if (rest.trim() && rest.trim() !== selected) throw new Error('Resume the engagement you want to delete first.');
+            const state = store.load(selected);
+            if (!await ctx.ui.confirm(`Delete engagement "${selected}"?`, `Permanently remove ${state.findings.length} findings, ${state.evidence.length} evidence artifacts, saved workflow progress, and reports from ${store.dir(selected)}? This cannot be undone.`)) return;
+            const deleted = selected;
+            store.delete(deleted);
+            selected = undefined;
+            pi.appendEntry('sithis-engagement', { id: null });
+            value = `Deleted engagement "${deleted}" and its stored artifacts.`;
           } else if (operation === 'pending' || operation === 'coverage') {
             const state = await dispatch(store, 'status', selected);
             value = operation === 'pending' ? formatPending(state) : formatCoverageGaps(state);
