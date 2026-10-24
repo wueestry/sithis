@@ -1,9 +1,10 @@
 {
   "packages": [
-    "npm:pi-provider-litellm",
-    "npm:pi-subagents",
-    "npm:pi-web-access",
-    "npm:context-mode"
+    "npm:pi-provider-litellm@4.4.2",
+    "npm:pi-subagents@0.81.0",
+    "npm:pi-web-access@0.44.0",
+    "npm:context-mode@1.0.169",
+    "../packages/sithis"
   ],
   "lastChangelogVersion": "1.4.0",
   "defaultProvider": "opencode-go",

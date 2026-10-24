@@ -1,0 +1,55 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { Store } from '../src/core.mjs';
+const repo = fileURLToPath(new URL('../../../', import.meta.url));
+const version = fs.readFileSync(path.join(repo,'agent/install/current-version'),'utf8').trim();
+const loaderPath = path.join(repo,`agent/install/releases/${version}/node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/loader.js`);
+const installed = fs.existsSync(loaderPath);
+
+test('installed Pi loads tools, operator controls, resumed scope policy and role definitions', { skip: !installed && 'Install Pi to run host integration' }, async t => {
+  const { loadExtensions, createExtensionRuntime } = await import(loaderPath);
+  const runtime = createExtensionRuntime();
+  const messages = [], entries = [];
+  runtime.sendMessage = message => messages.push(message);
+  runtime.appendEntry = (customType,data) => entries.push({ type:'custom',customType,data });
+  const result = await loadExtensions([path.join(repo,'packages/sithis/src/extension.ts')], repo, undefined, runtime);
+  assert.deepEqual(result.errors, []);
+  const extension = result.extensions[0];
+  assert.deepEqual([...extension.tools.keys()].sort(), ['sithis_assess','sithis_inspect']);
+  const gate = extension.handlers.get('tool_call')[0];
+  assert.equal(await gate({toolName:'bash'}), undefined);
+  const root = fs.mkdtempSync(path.join(os.tmpdir(),'sithis-pi-'));
+  const previous = process.env.SITHIS_DATA_DIR; process.env.SITHIS_DATA_DIR = root;
+  t.after(() => { if(previous) process.env.SITHIS_DATA_DIR=previous; else delete process.env.SITHIS_DATA_DIR; fs.rmSync(root,{recursive:true,force:true}); });
+  const store = new Store(root);
+  store.create('demo',{allowed:['127.0.0.1'],ports:[80],expires:new Date(Date.now()+60000).toISOString(),authorization:'fixture owner'});
+  const errors = [];
+  const ctx = {ui:{notify:message=>errors.push(message)},sessionManager:{getBranch:()=>entries}};
+  const command = extension.commands.get('engagement');
+  await command.handler('resume demo',ctx);
+  assert.equal(errors.length,0); assert.equal(messages.length,1);
+  assert.equal((await gate({toolName:'bash'})).block,true);
+  assert.equal((await gate({toolName:'subagent'})).block,true);
+  assert.equal(await gate({toolName:'sithis_assess'}),undefined);
+  const tool = extension.tools.get('sithis_assess').definition;
+  await assert.rejects(tool.execute('test',{engagement:'other',operation:'status'}),/differs/);
+  const status = await tool.execute('test',{engagement:'demo',operation:'status'});
+  assert.match(status.content[0].text,/demo/);
+  await command.handler('leave',ctx); assert.equal(await gate({toolName:'bash'}),undefined);
+  // Restoring an old branch restores its engagement gate.
+  await extension.handlers.get('session_tree')[0]({}, {sessionManager:{getBranch:()=>entries.slice(0,1)}});
+  assert.equal((await gate({toolName:'bash'})).block,true);
+  const { discoverAgents } = await import(path.join(repo,'agent/npm/node_modules/pi-subagents/src/agents/agents.js'));
+  const discovered = discoverAgents(repo,'both');
+  const agents = discovered.agents.filter(a=>a.packageSourceName==='@sithis/pi-pentest');
+  assert.equal(agents.length,6);
+  for(const agent of agents) {
+    assert.equal(agent.extensions[0],path.join(repo,'packages/sithis/src/extension.ts'));
+    assert.ok(agent.tools.every(tool=>['sithis_assess','sithis_inspect'].includes(tool)));
+  }
+  assert.deepEqual(agents.find(a=>a.name==='sithis-report-writer').tools,['sithis_inspect']);
+});

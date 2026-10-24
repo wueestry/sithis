@@ -1,0 +1,10 @@
+{
+  "name": "pi-extensions",
+  "private": true,
+  "dependencies": {
+    "context-mode": "1.0.169",
+    "pi-provider-litellm": "4.4.2",
+    "pi-subagents": "0.81.0",
+    "pi-web-access": "0.44.0"
+  }
+}

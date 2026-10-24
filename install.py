@@ -80,6 +80,15 @@ def main():
     # Use Pi's package manager so npm, Git, and local sources retain their
     # normal layout and resource filters in settings.json.
     env = dict(os.environ, PI_CODING_AGENT_DIR=str(root / "agent"))
+    # Restore the reviewed extension dependency graph before Pi reconciles its
+    # package registrations and resource filters.
+    extension_root = root / "agent/npm"
+    if (extension_root / "package-lock.json").exists():
+        print("Restoring locked Pi extension dependencies", flush=True)
+        subprocess.run(
+            ["npm", "ci", "--omit=dev", "--no-audit", "--no-fund", "--engine-strict"],
+            cwd=extension_root, check=True,
+        )
     for source in sources:
         print(f"Installing configured package: {source}", flush=True)
         subprocess.run([str(binary), "install", source], cwd=root / "agent",

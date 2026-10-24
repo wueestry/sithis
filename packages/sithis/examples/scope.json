@@ -1,0 +1,10 @@
+{
+  "allowed": ["app.example.test"],
+  "excluded": ["payments.app.example.test", "169.254.0.0/16"],
+  "ports": [443],
+  "expires": "REPLACE_WITH_ISO_8601_ENGAGEMENT_END",
+  "authorization": "REPLACE_WITH_RULES_OF_ENGAGEMENT_REFERENCE",
+  "maxRequests": 100,
+  "maxRequestsPerHost": 30,
+  "minIntervalMs": 1000
+}
