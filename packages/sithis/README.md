@@ -38,7 +38,9 @@ the apex), IPv4/IPv6 addresses, or CIDRs. Exclusions win. A hostname allowlist
 allows its resolved addresses except explicit exclusions; use exclusions for
 internal ranges when appropriate to your engagement. URL path restrictions are
 not supported: use host-level scope only in this version. IPv4-mapped IPv6 is
-rejected. Empty or expired scopes cannot make requests.
+rejected. Empty or expired scopes cannot make requests. `maxRequests` and
+`maxRequestsPerHost` default to 100 total requests and 30 per host when omitted.
+Set either to `0` for no limit; its request cap is then disabled.
 
 ```sh
 node packages/sithis/src/cli.mjs new customer-demo @my-scope.json
@@ -49,7 +51,9 @@ In Sithis, enter `/engagement` for the menu or `/engagement new` for guided setu
 Choose an expiration preset (1 hour, 4 hours, 24 hours, or 7 days) without typing
 a date. Durations start when selected; a day means 24 hours. Choose
 “Custom deadline…” to enter an exact ISO date with timezone instead.
-Invalid fields can be retried without re-entering previous answers. Review the
+The request-budget prompt accepts a number, or blank/`0`/`none` for no limit;
+a numeric budget also keeps the default 30 requests per host, while no limit
+disables both caps. Invalid fields can be retried without re-entering previous answers. Review the
 completed scope before saving; Escape cancels without creating an engagement. You can also load a scope
 file directly: `/engagement new customer-demo @my-scope.json` (plain file paths
 work too). Relative paths resolve from Pi's working directory; quote paths with
@@ -79,7 +83,8 @@ another's targets.
 With an engagement selected, `/engagement` shows a summary in the menu:
 
 - Time remaining and a local deadline with timezone.
-- Requests used and remaining, including budget exhaustion.
+- Requests used and remaining, including budget exhaustion; unlimited budgets
+  show `no limit`.
 - Recorded assets and finding counts by status.
 - Machine and manual verification counts for currently verified findings.
 - Recorded tested, blocked, skipped, and unknown coverage checks.
@@ -121,7 +126,8 @@ Coverage statuses: `tested`, `skipped`, `blocked`, `unknown`. Tested entries nee
 evidence. Candidate findings are deduplicated by exact URL and title; severity
 is one of `info`, `low`, `medium`, `high`, `critical`. This is not semantic
 vulnerability deduplication. Resume returns coverage, assets, pending work,
-recent actions and the remaining request budget.
+recent actions and the remaining request budget; `requestBudget.unlimited` is
+true when the total cap is disabled.
 
 `sithis_inspect` supports only status, resume, evidence, report and capsule.
 Planning and reporting agents use this tool and cannot send target requests.
@@ -145,7 +151,9 @@ retrieved explicitly and must be treated as untrusted data.
 
 Budgets are shared on disk across agents and processes. Requests reserve their
 budget before execution; failed and cancelled requests still consume it.
-Per-host rate limits reject immediately rather than silently queue. Verification
+A `maxRequests` or `maxRequestsPerHost` value of `0` disables that cap. Unlimited
+budgets remove the runaway-request guardrail; only `minIntervalMs` still spaces
+requests. Per-host rate limits reject immediately rather than silently queue. Verification
 waits between its own requests. Retrying after a recent separate probe may be
 necessary. Redirect destinations must be probed explicitly and pass fresh scope
 checks. A GET can still have side effects: choose endpoints according to the

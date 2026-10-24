@@ -27,27 +27,62 @@ test('missing, malformed, placeholder and nonexistent payloads explain how to re
 
 test('guided setup collects explicit scope, handles cancellation and rejects invalid scopes',async () => {
   const expires=new Date(Date.now()+3600000).toISOString();
-  const answers=['demo','app.test, api.test','443,8443',expires,'Customer approval','169.254.0.0/16'];
+  const answers=['demo','app.test, api.test','443,8443',expires,'Customer approval','','169.254.0.0/16'];
   const setup=await guidedScope({select:async()=> 'Custom deadline…',input:async()=>answers.shift()});
   assert.equal(setup.id,'demo'); assert.deepEqual(setup.scope.ports,[443,8443]);
   assert.deepEqual(setup.scope.allowed,['app.test','api.test']);
-  assert.equal(setup.scope.maxRequests,100);
+  assert.equal(setup.scope.maxRequests,0);
+  assert.equal(setup.scope.maxRequestsPerHost,0);
   await assert.rejects(guidedScope({select:async()=> 'Custom deadline…',input:async()=>undefined}),/cancelled/);
   const errors=[];
-  const retry=['','bad id','valid-id','http://bad','app.test','NaN','0','443','yesterday',new Date(Date.now()-1000).toISOString(),expires,'','approval',''];
+  const retry=['','bad id','valid-id','http://bad','app.test','NaN','0','443','yesterday',new Date(Date.now()-1000).toISOString(),expires,'','approval','',''];
   const corrected=await guidedScope({select:async()=> 'Custom deadline…',input:async()=>retry.shift(),notify:message=>errors.push(message)});
   assert.equal(corrected.id,'valid-id');
   assert.deepEqual(corrected.scope.allowed,['app.test']);
   assert.equal(errors.length,8);
   await assert.rejects(guidedScope({select:async()=> 'Custom deadline…',input:async()=>undefined},'existing',{existingIds:['existing']}),/already exists/);
-  const decline=['app.test','443',expires,'approval',''];
+  const decline=['app.test','443',expires,'approval','',''];
   await assert.rejects(guidedScope({select:async()=> 'Custom deadline…',input:async()=>decline.shift(),confirm:async()=>false},'declined'),/cancelled/);
+});
+
+
+test('guided setup accepts numeric request budgets and blank or 0 for no limit', async () => {
+  const expires = new Date(Date.now() + 3600000).toISOString();
+  const run = async answer => {
+    const answers = ['demo', 'app.test', '443', expires, 'approval', answer, ''];
+    let review;
+    const { scope } = await guidedScope({
+      select: async () => 'Custom deadline…',
+      input: async () => answers.shift(),
+      confirm: async (_title, text) => { review = text; return true; },
+    });
+    return { scope, review };
+  };
+  const limited = await run('250');
+  assert.equal(limited.scope.maxRequests, 250);
+  assert.equal(limited.scope.maxRequestsPerHost, 30);
+  assert.match(limited.review, /Requests: 250 total, 30 per host/);
+  for (const answer of ['', '0', 'none', 'unlimited']) {
+    const unlimited = await run(answer);
+    assert.equal(unlimited.scope.maxRequests, 0);
+    assert.equal(unlimited.scope.maxRequestsPerHost, 0);
+    assert.match(unlimited.review, /Requests: no limit/);
+  }
+  const errors = [];
+  const retried = ['demo', 'app.test', '443', expires, 'approval', 'many', '250', ''];
+  const { scope } = await guidedScope({
+    select: async () => 'Custom deadline…',
+    input: async () => retried.shift(),
+    notify: message => errors.push(message),
+  });
+  assert.equal(scope.maxRequests, 250);
+  assert.match(errors[0], /whole number of requests/);
 });
 
 
 test('expiration presets resolve to UTC deadlines and appear in the scope review', async () => {
   for (const [choice, duration] of [['1 hour', 3600000], ['4 hours', 14400000], ['24 hours', 86400000], ['7 days', 604800000]]) {
-    const answers = ['app.test', '443', 'approval', ''];
+    const answers = ['app.test', '443', 'approval', '', ''];
     let review;
     const before = Date.now();
     const { scope } = await guidedScope({
@@ -121,6 +156,9 @@ test('dashboard summarizes persisted states without implying complete coverage',
   assert.match(formatStatus(state), /Allowed: app.test/);
   assert.match(formatPending(state), /Manual review required: Needs review/);
   assert.match(formatPending(state), /Retest fix: Patched issue/);
+  const unlimited = formatDashboard({ ...state, requestBudget: { used: 24, total: 0, unlimited: true } }, Date.parse('2030-01-01T00:18:00Z'));
+  assert.match(unlimited, /Requests: 24 · no limit/);
+  assert.doesNotMatch(unlimited, /budget exhausted/);
   const gaps = formatCoverageGaps(state);
   assert.match(gaps, /Missing credentials/);
   assert.match(gaps, /parameter: id/);

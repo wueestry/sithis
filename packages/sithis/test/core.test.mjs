@@ -25,6 +25,13 @@ test('scope rejects missing authorization, expiry, malformed CIDRs, ports and tr
   assert.throws(() => validateScope({ ...scope(), expires: '2020-01-01' }));
   assert.throws(() => validateScope({ ...scope(), allowed: ['127.0.0.1/33'] }));
   assert.throws(() => validateScope({ ...scope(), ports: [0] }));
+  assert.doesNotThrow(() => validateScope({ ...scope(), maxRequests: 0, maxRequestsPerHost: 0 }));
+  assert.throws(() => validateScope({ ...scope(), maxRequests: -1 }), /Invalid maxRequests/);
+  assert.throws(() => validateScope({ ...scope(), maxRequests: 1.5 }), /Invalid maxRequests/);
+  assert.throws(() => validateScope({ ...scope(), maxRequestsPerHost: -1 }), /Invalid maxRequestsPerHost/);
+  const defaults = validateScope({ allowed: ['127.0.0.1'], ports: [80], expires: new Date(Date.now() + 60000).toISOString(), authorization: 'fixture approval' });
+  assert.equal(defaults.maxRequests, 100);
+  assert.equal(defaults.maxRequestsPerHost, 30);
   assert.throws(() => fixture(t).create('../escape', scope()));
   await assert.rejects(resolveTarget(scope(), 'http://user:pass@127.0.0.1/'));
   await assert.rejects(resolveTarget(scope(), 'file:///etc/passwd'));
@@ -65,6 +72,16 @@ test('shared budgets, rate limits and locks fail closed across store instances',
   store.reserve('rate','a'); assert.throws(() => other.reserve('rate','a'), /rate/);
   fs.mkdirSync(path.join(store.dir('rate'),'.lock'));
   assert.throws(() => other.reserve('rate','b'), /busy/);
+  store.create('unlimited', { ...scope(), maxRequests: 0, maxRequestsPerHost: 0, minIntervalMs: 1 });
+  store.transaction('unlimited', s => { s.requests = 150; s.hosts.a = { requests: 50, last: 0 }; });
+  store.reserve('unlimited','a');
+  assert.equal(store.load('unlimited').requests, 151);
+  assert.equal(store.load('unlimited').hosts.a.requests, 51);
+  assert.deepEqual(handoff(store,'unlimited').requestBudget, { used: 151, total: 0, unlimited: true });
+  assert.match(report(store,'unlimited'), /Requests: 151\/no limit/);
+  store.create('total-unlimited', { ...scope(), maxRequests: 0, maxRequestsPerHost: 1, minIntervalMs: 1 });
+  store.transaction('total-unlimited', s => { s.hosts.a = { requests: 1, last: 0 }; });
+  assert.throws(() => store.reserve('total-unlimited','a'), /budget/);
 });
 
 test('vulnerable and hardened fixtures: independent controls, report, capsule replay, fix retest', async t => {

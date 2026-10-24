@@ -52,7 +52,7 @@ test('installed Pi loads tools, operator controls, resumed scope policy and role
   assert.equal(store.load('bare-file').id,'bare-file');
   await command.handler('new from-inline '+JSON.stringify(scope),interactive);
   assert.equal(store.load('from-inline').id,'from-inline');
-  const answers=['wizard','127.0.0.1','80',scope.expires,'fixture approval',''];
+  const answers=['wizard','127.0.0.1','80',scope.expires,'fixture approval','',''];
   await command.handler('new',{...interactive,ui:{...ctx.ui,select:async()=> 'Custom deadline…',input:async()=>answers.shift()}});
   assert.equal(store.load('wizard').id,'wizard');
   await command.handler('leave',interactive);
@@ -78,7 +78,7 @@ test('installed Pi loads tools, operator controls, resumed scope policy and role
   await assert.rejects(tool.execute('test',{engagement:'wizard',operation:'status'}),/differs/);
   // Menu actions use the same operator path and preserve cancellation semantics.
   assert.equal(extension.commands.has('engagment'),false);
-  const menuAnswers=['menu-demo','127.0.0.1','bad-port','80',scope.expires,'menu approval',''];
+  const menuAnswers=['menu-demo','127.0.0.1','bad-port','80',scope.expires,'menu approval','',''];
   const statuses=[];
   const menuUi={...ctx.ui,select:async(title)=> title === 'Engagement expires in' ? 'Custom deadline…' : 'New engagement',input:async()=>menuAnswers.shift(),confirm:async()=>true,setStatus:(key,text)=>statuses.push({key,text})};
   await command.handler('',{...interactive,ui:menuUi});
@@ -90,7 +90,7 @@ test('installed Pi loads tools, operator controls, resumed scope policy and role
   const beforeCancel=entries.length;
   await command.handler('',{...interactive,ui:{...menuUi,select:async()=>undefined}});
   assert.equal(entries.length,beforeCancel);
-  const rejectedAnswers=['declined','127.0.0.1','80',scope.expires,'approval',''];
+  const rejectedAnswers=['declined','127.0.0.1','80',scope.expires,'approval','',''];
   await command.handler('new',{...interactive,ui:{...menuUi,input:async()=>rejectedAnswers.shift(),confirm:async()=>false}});
   assert.match(errors.pop(),/cancelled/);
   assert.equal(fs.existsSync(store.dir('declined')),false);
@@ -99,7 +99,7 @@ test('installed Pi loads tools, operator controls, resumed scope policy and role
   process.env.PI_CODING_AGENT_DIR = path.join(repo,'agent');
   // Dashboard actions use saved state without target requests or selection changes.
   for (const [label, expected] of [
-    ['View dashboard', /Requests: 0\/100/],
+    ['View dashboard', /Requests: 0 · no limit/],
     ['Review pending findings', /No pending findings/],
     ['View coverage gaps', /does not imply complete coverage/],
     ['Retest fixes', /No fixes with automatic retest recipes/],

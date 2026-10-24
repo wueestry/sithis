@@ -19,7 +19,9 @@ Use /engagement pending, /engagement coverage, or /engagement retest [ID].
 Resume saved work with /engagement resume ID; list it with /engagement list.
 Use /engagement leave to return to general Pi tools.
 Scope file paths resolve from Pi's working directory. The example template is
-packages/sithis/examples/scope.json; replace its placeholder values first.`;
+packages/sithis/examples/scope.json; replace its placeholder values first.
+Set maxRequests or maxRequestsPerHost to 0 for no limit. Omitted values default
+to 100 total requests and 30 per host.`;
 
 export function splitWord(text) {
   const match = text.trim().match(/^(\S+)(?:\s+([\s\S]*))?$/);
@@ -67,12 +69,15 @@ export function formatDashboard(state, now = Date.now()) {
   const count = status => state.findings.filter(f => f.status === status).length;
   const coverageCount = status => state.coverage.filter(c => c.status === status).length;
   const budget = state.requestBudget;
+  const requestLine = budget.total === 0
+    ? `Requests: ${budget.used} · no limit`
+    : `Requests: ${budget.used}/${budget.total} · ${Math.max(0, budget.total - budget.used)} remaining${budget.used >= budget.total ? ' · budget exhausted' : ''}`;
   const awaiting = state.findings.filter(f => ['candidate', 'reproduced', 'inconclusive'].includes(f.status)).length;
   return [
     `Engagement: ${state.id}${remaining <= 0 ? ' (expired)' : ''}`,
     remaining <= 0 ? `Expired ${remainingTime(remaining)} ago` : `Expires in: ${remainingTime(remaining)}`,
     `Deadline: ${new Date(state.scope.expires).toLocaleString(undefined, { timeZoneName: 'short' })}`,
-    `Requests: ${budget.used}/${budget.total} · ${Math.max(0, budget.total - budget.used)} remaining${budget.used >= budget.total ? ' · budget exhausted' : ''}`,
+    requestLine,
     `Assets recorded: ${state.assets.length}`,
     `Findings: ${count('verified')} verified · ${awaiting} awaiting validation · ${count('fixed')} fixed · ${count('retested')} retested · ${count('rejected')} rejected`,
     `Verified evidence: ${state.findings.filter(f => f.status === 'verified' && f.verificationSource === 'http-marker').length} machine · ${state.findings.filter(f => f.status === 'verified' && f.verificationSource === 'manual-review').length} manual`,
@@ -155,11 +160,18 @@ export async function guidedScope(ui, initialId, { existingIds = [] } = {}) {
     validateScope({ ...base, expires: value }); return new Date(value).toISOString();
   }) : new Date(Date.now() + durations[expiration]).toISOString();
   const authorization = await field('Authorization / rules-of-engagement reference', 'Customer approval or engagement document reference', value => value);
+  const budget = await field('Request budget (blank or 0 = no limit)', '0', value => {
+    if (!value || /^(?:none|unlimited)$/i.test(value)) return 0;
+    if (!/^\d+$/.test(value)) throw new Error('Enter a whole number of requests, or blank/0 for no limit.');
+    const parsed = Number(value);
+    validateScope({ ...base, maxRequests: parsed });
+    return parsed;
+  }, true);
   const excluded = await field('Excluded hosts, IPs or CIDRs (optional, comma-separated)', 'Leave blank if none', value => {
     const parsed = hosts(value); validateScope({ ...base, excluded: parsed }); return parsed;
   }, true);
-  const scope = validateScope({ allowed, ports, expires, authorization, excluded });
+  const scope = validateScope({ allowed, ports, expires, authorization, excluded, maxRequests: budget, maxRequestsPerHost: budget === 0 ? 0 : 30 });
   // Show the completed scope before persisting; cancellation never creates partial state.
-  if (ui.confirm && !await ui.confirm('Create engagement?', `${id}\nAllowed: ${allowed.join(', ')}\nPorts: ${ports.join(', ')}\nExpires: ${scope.expires}\nAuthorization: ${authorization}\nExclusions: ${excluded.join(', ') || 'none'}`)) throw new SetupCancelled();
+  if (ui.confirm && !await ui.confirm('Create engagement?', `${id}\nAllowed: ${allowed.join(', ')}\nPorts: ${ports.join(', ')}\nExpires: ${scope.expires}\nRequests: ${scope.maxRequests === 0 ? 'no limit' : `${scope.maxRequests} total, ${scope.maxRequestsPerHost} per host`}\nAuthorization: ${authorization}\nExclusions: ${excluded.join(', ') || 'none'}`)) throw new SetupCancelled();
   return { id, scope };
 }

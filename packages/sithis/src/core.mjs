@@ -41,9 +41,9 @@ export function validateScope(scope) {
   [...scope.allowed, ...(scope.excluded ?? [])].forEach(validateRule);
   assert(Array.isArray(scope.ports) && scope.ports.length && scope.ports.every(p => Number.isInteger(p) && p > 0 && p < 65536), 'Explicit valid ports required');
   assert(Number.isFinite(Date.parse(scope.expires)) && Date.parse(scope.expires) > Date.now(), 'Future scope expiry required');
-  for (const [key, fallback, max] of [['maxRequests',100,100000],['maxRequestsPerHost',30,10000],['minIntervalMs',1000,60000]]) {
+  for (const [key, fallback, max, minimum] of [['maxRequests',100,100000,0],['maxRequestsPerHost',30,10000,0],['minIntervalMs',1000,60000,1]]) {
     const v = scope[key] ?? fallback;
-    assert(Number.isInteger(v) && v >= 1 && v <= max, `Invalid ${key}`);
+    assert(Number.isInteger(v) && v >= minimum && v <= max, `Invalid ${key}`);
   }
   assert(typeof scope.authorization === 'string' && scope.authorization.trim(), 'Authorization reference required');
   return { excluded: [], maxRequests: 100, maxRequestsPerHost: 30, minIntervalMs: 1000, ...scope };
@@ -116,7 +116,9 @@ export class Store {
     return this.transaction(id, s => {
       assert(Date.parse(s.scope.expires) > Date.now(), 'Engagement scope expired');
       const previous = s.hosts[hostname] ?? { requests: 0, last: 0 };
-      assert(s.requests < s.scope.maxRequests && previous.requests < s.scope.maxRequestsPerHost, 'Request budget exhausted');
+      const withinTotal = s.scope.maxRequests === 0 || s.requests < s.scope.maxRequests;
+      const withinHost = s.scope.maxRequestsPerHost === 0 || previous.requests < s.scope.maxRequestsPerHost;
+      assert(withinTotal && withinHost, 'Request budget exhausted');
       assert(Date.now() - previous.last >= s.scope.minIntervalMs, 'Host rate limit: retry later');
       s.requests++;
       s.hosts[hostname] = { requests: previous.requests + 1, last: Date.now() };
@@ -256,12 +258,13 @@ export function coverage(store, id, input) {
 }
 export function handoff(store, id) {
   const s = store.load(id);
-  return { id, scope: s.scope, requestBudget: { used: s.requests, total: s.scope.maxRequests }, assets: s.assets, findings: s.findings.map(({id,title,status,severity,evidence,checks}) => ({id,title,status,severity,evidence, verificationSource: checks.findLast(c => (c.verdict ?? c.status) === status)?.oracle ?? null})), coverage: s.coverage, pending: s.findings.filter(f => ['candidate','reproduced','inconclusive','fixed'].includes(f.status)).map(f => ({finding: f.id, next: f.status === 'fixed' ? 'retest' : f.recipe ? 'verify' : 'manual-review'})), recentActions: s.actions.slice(-20) };
+  return { id, scope: s.scope, requestBudget: { used: s.requests, total: s.scope.maxRequests, unlimited: s.scope.maxRequests === 0 }, assets: s.assets, findings: s.findings.map(({id,title,status,severity,evidence,checks}) => ({id,title,status,severity,evidence, verificationSource: checks.findLast(c => (c.verdict ?? c.status) === status)?.oracle ?? null})), coverage: s.coverage, pending: s.findings.filter(f => ['candidate','reproduced','inconclusive','fixed'].includes(f.status)).map(f => ({finding: f.id, next: f.status === 'fixed' ? 'retest' : f.recipe ? 'verify' : 'manual-review'})), recentActions: s.actions.slice(-20) };
 }
 const safeText = value => String(value ?? '').replace(/[<>]/g, c => c === '<' ? '&lt;' : '&gt;');
 export function report(store, id) {
   const s = store.load(id);
-  const lines = [`# Sithis assessment: ${safeText(id)}`, '', `Generated: ${now()}`, `Scope expires: ${s.scope.expires}`, `Requests: ${s.requests}/${s.scope.maxRequests}`, '', '## Verified observations and reviewed findings', '', 'Automatic receipts establish only their stated observation; assess vulnerability impact separately.', ''];
+  const requestLimit = s.scope.maxRequests === 0 ? 'no limit' : s.scope.maxRequests;
+  const lines = [`# Sithis assessment: ${safeText(id)}`, '', `Generated: ${now()}`, `Scope expires: ${s.scope.expires}`, `Requests: ${s.requests}/${requestLimit}`, '', '## Verified observations and reviewed findings', '', 'Automatic receipts establish only their stated observation; assess vulnerability impact separately.', ''];
   for (const f of s.findings.filter(f => ['verified','fixed','retested'].includes(f.status))) {
     lines.push(`### ${safeText(f.title)}`, '', `Severity: ${f.severity}; status: ${f.status}`, '', safeText(f.url), '', safeText(f.description), '', `Remediation: ${safeText(f.remediation)}`, '', `Evidence: ${f.evidence.join(', ')}`, '', `Verification: ${safeText(f.checks.findLast(c => c.oracle === 'http-marker')?.oracle ?? f.checks.at(-1)?.oracle)} — ${safeText(f.checks.findLast(c => c.oracle === 'http-marker')?.claim ?? f.checks.at(-1)?.reason)}`, '');
   }

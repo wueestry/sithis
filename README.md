@@ -46,7 +46,9 @@ model requests or target tools you invoke.
 Enter `/engagement` to open the menu, or `/engagement new` to start the wizard.
 The wizard retries invalid fields without losing earlier answers and shows a
 scope summary before saving. Escape cancels without creating partial state.
-The selected engagement is shown in the footer. With an engagement selected,
+The request-budget prompt accepts a number, or blank/`0`/`none` for no limit;
+the total and per-host caps default to 100 and 30 when keys are omitted from a
+scope file. The selected engagement is shown in the footer. With an engagement selected,
 `/engagement` opens a dashboard showing time remaining, request budget, finding
 states, and recorded coverage. Its menu opens pending findings, coverage gaps,
 automatic fix retesting, and reports. `/engagement status` prints the dashboard;
