@@ -94,8 +94,13 @@ test('installed Pi loads tools, operator controls, resumed scope policy and role
   await command.handler('new',{...interactive,ui:{...menuUi,input:async()=>rejectedAnswers.shift(),confirm:async()=>false}});
   assert.match(errors.pop(),/cancelled/);
   assert.equal(fs.existsSync(store.dir('declined')),false);
+  // Package agents come from the Sithis agent directory, as they do in the host.
+  const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = path.join(repo,'agent');
   const { discoverAgents } = await import(path.join(repo,'agent/npm/node_modules/pi-subagents/src/agents/agents.js'));
   const discovered = discoverAgents(repo,'both');
+  if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+  else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
   const agents = discovered.agents.filter(a=>a.packageSourceName==='@sithis/pi-pentest');
   assert.equal(agents.length,6);
   for(const agent of agents) {
