@@ -46,6 +46,9 @@ node packages/sithis/src/cli.mjs resume customer-demo
 ```
 
 In Sithis, enter `/engagement` for the menu or `/engagement new` for guided setup.
+Choose an expiration preset (1 hour, 4 hours, 24 hours, or 7 days) without typing
+a date. Durations start when selected; a day means 24 hours. Choose
+“Custom deadline…” to enter an exact ISO date with timezone instead.
 Invalid fields can be retried without re-entering previous answers. Review the
 completed scope before saving; Escape cancels without creating an engagement. You can also load a scope
 file directly: `/engagement new customer-demo @my-scope.json` (plain file paths

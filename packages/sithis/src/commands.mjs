@@ -112,10 +112,13 @@ export async function guidedScope(ui, initialId, { existingIds = [] } = {}) {
     if (!/^\d+(?:\s*,\s*\d+)*$/.test(value)) throw new Error('Enter port numbers, for example 80,443.');
     const parsed = value.split(',').map(Number); validateScope({ ...base, ports: parsed }); return [...new Set(parsed)];
   });
-  const expires = await field(`Scope expires (e.g. ${exampleExpiry})`, exampleExpiry, value => {
+  const durations = { '1 hour': 3600000, '4 hours': 14400000, '24 hours': 86400000, '7 days': 604800000 };
+  const expiration = await ui.select('Engagement expires in', [...Object.keys(durations), 'Custom deadline…']);
+  if (expiration === undefined) throw new SetupCancelled();
+  const expires = expiration === 'Custom deadline…' ? await field(`Scope expires (e.g. ${exampleExpiry})`, exampleExpiry, value => {
     if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})$/.test(value)) throw new Error(`Include date, time and timezone, for example ${exampleExpiry}.`);
     validateScope({ ...base, expires: value }); return new Date(value).toISOString();
-  });
+  }) : new Date(Date.now() + durations[expiration]).toISOString();
   const authorization = await field('Authorization / rules-of-engagement reference', 'Customer approval or engagement document reference', value => value);
   const excluded = await field('Excluded hosts, IPs or CIDRs (optional, comma-separated)', 'Leave blank if none', value => {
     const parsed = hosts(value); validateScope({ ...base, excluded: parsed }); return parsed;

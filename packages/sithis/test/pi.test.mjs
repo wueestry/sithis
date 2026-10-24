@@ -53,7 +53,7 @@ test('installed Pi loads tools, operator controls, resumed scope policy and role
   await command.handler('new from-inline '+JSON.stringify(scope),interactive);
   assert.equal(store.load('from-inline').id,'from-inline');
   const answers=['wizard','127.0.0.1','80',scope.expires,'fixture approval',''];
-  await command.handler('new',{...interactive,ui:{...ctx.ui,input:async()=>answers.shift()}});
+  await command.handler('new',{...interactive,ui:{...ctx.ui,select:async()=> 'Custom deadline…',input:async()=>answers.shift()}});
   assert.equal(store.load('wizard').id,'wizard');
   await command.handler('leave',interactive);
   await command.handler('',interactive);
@@ -61,7 +61,7 @@ test('installed Pi loads tools, operator controls, resumed scope policy and role
   await command.handler('list',interactive);
   assert.equal(errors.length,0);
   assert.match(messages.at(-1).content,/from-file/);
-  await command.handler('new cancelled',{...interactive,ui:{...ctx.ui,input:async()=>undefined}});
+  await command.handler('new cancelled',{...interactive,ui:{...ctx.ui,select:async()=> 'Custom deadline…',input:async()=>undefined}});
   assert.match(errors.pop(),/cancelled/);
   assert.equal(fs.existsSync(store.dir('cancelled')),false);
   for(const payload of ['{','{allowed:[]}']) {
@@ -80,7 +80,7 @@ test('installed Pi loads tools, operator controls, resumed scope policy and role
   assert.equal(extension.commands.has('engagment'),false);
   const menuAnswers=['menu-demo','127.0.0.1','bad-port','80',scope.expires,'menu approval',''];
   const statuses=[];
-  const menuUi={...ctx.ui,select:async()=> 'New engagement',input:async()=>menuAnswers.shift(),confirm:async()=>true,setStatus:(key,text)=>statuses.push({key,text})};
+  const menuUi={...ctx.ui,select:async(title)=> title === 'Engagement expires in' ? 'Custom deadline…' : 'New engagement',input:async()=>menuAnswers.shift(),confirm:async()=>true,setStatus:(key,text)=>statuses.push({key,text})};
   await command.handler('',{...interactive,ui:menuUi});
   assert.equal(store.load('menu-demo').id,'menu-demo');
   assert.match(errors.pop(),/port numbers/);
