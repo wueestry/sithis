@@ -1,16 +1,23 @@
-agent/install/releases
-agent/npm/node_modules
+# Local Pi/Sithis state
+/agent/install/releases/
+/agent/npm/node_modules/
+/agent/sessions/
+/agent/pi-subagents/
 
-agent/sessions
-agent/pi-subagents
+# Credentials and model-provider state
+/agent/auth.json
+/agent/models-store.json
 
-agent/models-store.json
-agent/auth.json
+# Tool-generated data
+/context-mode/
 
-context-mode
-
+# Local environment
 .env
+
+# Dependencies and build output
 /node_modules/
 /packages/sithis-tui/dist/
 /packages/sithis-tui/node_modules/
+
+# Python cache
 __pycache__/
